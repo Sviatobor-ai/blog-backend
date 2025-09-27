@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List
 
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -322,6 +322,21 @@ def writer_publish(payload: WriterPublishIn, response: Response) -> WriterPublis
         ) from exc
     finally:
         session.close()
+
+
+@app.get("/rubrics")
+def list_rubrics(all_: bool = Query(False, alias="all")):
+    """Return rubrics filtered by activation flag."""
+
+    with SessionLocal() as session:
+        query = session.query(Rubric)
+        if not all_:
+            query = query.filter(Rubric.is_active.is_(True))
+        rubrics = query.order_by(Rubric.name_pl).all()
+        return [
+            {"code": rubric.code, "name_pl": rubric.name_pl, "is_active": rubric.is_active}
+            for rubric in rubrics
+        ]
 
 if __name__ == "__main__":
     import uvicorn
