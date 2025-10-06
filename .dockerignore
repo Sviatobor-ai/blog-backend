@@ -1,0 +1,32 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.mypy_cache/
+.pytest_cache/
+
+# Configs
+.venv/
+.env
+.env.*
+*.sqlite3
+
+# Node
+node_modules/
+dist/
+build/
+
+# IDE/OS trash
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
