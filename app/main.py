@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Dict, List
 
@@ -22,15 +23,52 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Dev CORS — open; will restrict later in prod
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+APP_ENV = os.getenv("APP_ENV", "dev").lower()
+PROD_ALLOWED_ORIGINS = [
+    "https://wiedza.joga.yoga",
+    "https://blog-jy-front.vercel.app",
+]
+
+if APP_ENV == "prod":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=PROD_ALLOWED_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 SLUG_REGEX = re.compile(r"^[a-z0-9-]{3,200}$")
+
+
+def serialize_post(post: Post) -> dict:
+    return {
+        "slug": post.slug,
+        "locale": post.locale,
+        "section": post.section,
+        "categories": post.categories,
+        "tags": post.tags,
+        "title": post.title,
+        "description": post.description,
+        "canonical": post.canonical,
+        "robots": post.robots,
+        "headline": post.headline,
+        "lead": post.lead,
+        "body_mdx": post.body_mdx,
+        "geo_focus": post.geo_focus,
+        "faq": post.faq,
+        "citations": post.citations,
+        "created_at": getattr(post, "created_at", None),
+        "updated_at": getattr(post, "updated_at", None),
+    }
 
 
 def slugify_pl(value: str) -> str:
@@ -282,6 +320,64 @@ def health():
         "driver": "sqlalchemy+psycopg",
         "database_url_present": bool(DATABASE_URL),
     }
+
+
+@app.get("/posts")
+def list_posts(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(10, ge=1, le=50),
+    q: str | None = Query(None),
+    section: str | None = Query(None),
+):
+    offset = (page - 1) * per_page
+    with SessionLocal() as session:
+        query = session.query(Post)
+        if section:
+            query = query.filter(Post.section == section)
+        if q:
+            like = f"%{q.lower()}%"
+            query = query.filter(
+                (Post.title.ilike(like))
+                | (Post.headline.ilike(like))
+                | (Post.lead.ilike(like))
+            )
+        total = query.count()
+        items = (
+            query.order_by(Post.created_at.desc())
+            .offset(offset)
+            .limit(per_page)
+            .all()
+        )
+        return {
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "posts": [serialize_post(post) for post in items],
+        }
+
+
+@app.get("/posts/{slug}")
+def get_post(slug: str):
+    with SessionLocal() as session:
+        post = session.query(Post).filter(Post.slug == slug).one_or_none()
+        if not post:
+            raise HTTPException(status_code=404, detail="post not found")
+        return serialize_post(post)
+
+
+@app.get("/articles")
+def list_articles_alias(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(10, ge=1, le=50),
+    q: str | None = Query(None),
+    section: str | None = Query(None),
+):
+    return list_posts(page=page, per_page=per_page, q=q, section=section)
+
+
+@app.get("/articles/{slug}")
+def get_article_alias(slug: str):
+    return get_post(slug)
 
 
 @app.post("/writer/publish", response_model=WriterPublishOut)
