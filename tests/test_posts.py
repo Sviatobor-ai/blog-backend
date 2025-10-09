@@ -227,6 +227,13 @@ def test_get_article_returns_document_payload():
     assert len(document["article"]["sections"]) == 4
 
 
+def test_openapi_includes_article_routes():
+    schema = client.get("/openapi.json").json()
+
+    assert "/articles" in schema["paths"]
+    assert "/articles/{slug}" in schema["paths"]
+
+
 def test_schema_endpoint_returns_expected_shape():
     response = client.get("/schemas/article")
 
