@@ -148,7 +148,12 @@ def get_article_schema() -> dict:
     return ARTICLE_DOCUMENT_SCHEMA
 
 
-@app.get("/articles", response_model=ArticleListResponse)
+@app.get(
+    "/articles",
+    response_model=ArticleListResponse,
+    include_in_schema=True,
+    tags=["Articles"],
+)
 def list_articles(
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=1, le=50),
@@ -188,7 +193,12 @@ def list_articles(
     return ArticleListResponse(page=page, per_page=per_page, total=total, items=items)
 
 
-@app.get("/articles/{slug}", response_model=ArticleDetailResponse)
+@app.get(
+    "/articles/{slug}",
+    response_model=ArticleDetailResponse,
+    include_in_schema=True,
+    tags=["Articles"],
+)
 def get_article(slug: str, db: Session = Depends(get_db)):
     post = db.query(Post).filter(Post.slug == slug).one_or_none()
     if not post:
@@ -279,7 +289,7 @@ def list_rubrics(db: Session = Depends(get_db)):
     ]
 
 
-@app.get("/posts")
+@app.get("/posts", include_in_schema=False)
 def list_posts_legacy(
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=1, le=50),
@@ -291,7 +301,7 @@ def list_posts_legacy(
     return response.model_dump()
 
 
-@app.get("/posts/{slug}")
+@app.get("/posts/{slug}", include_in_schema=False)
 def get_post_legacy(slug: str, db: Session = Depends(get_db)):
     detail = get_article(slug, db)
     return detail.post.model_dump()
