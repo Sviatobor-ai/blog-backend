@@ -22,3 +22,16 @@ Backend service for managing blog content and taxonomy.
 - `GET /posts/{slug}` — fetch a single post by slug.
 - `GET /articles` — alias for `/posts`.
 - `GET /articles/{slug}` — alias for `/posts/{slug}`.
+
+AWS_REGION=eu-central-1
+ACCOUNT_ID=685716749010
+REPO=blog-backend
+TAG=prod-2
+IMAGE_URI=$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO:$TAG
+
+aws ecr get-login-password --region $AWS_REGION \
+ | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+docker build -t $REPO:$TAG .
+docker tag  $REPO:$TAG $IMAGE_URI
+docker push $IMAGE_URI
