@@ -94,7 +94,10 @@ def extract_sections_from_body(body: str) -> List[dict]:
 
 def document_from_post(post: Post) -> ArticleDocument:
     if post.payload:
-        return ArticleDocument.model_validate(post.payload)
+        try:
+            return ArticleDocument.model_validate(post.payload)
+        except ValueError:
+            logging.warning("Stored payload for slug %s is invalid, falling back to columns", post.slug)
     sections = extract_sections_from_body(post.body_mdx or "")
     return ArticleDocument(
         topic=post.title,

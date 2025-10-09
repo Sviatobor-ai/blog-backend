@@ -1,9 +1,31 @@
 """Database models."""
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, String, Text, func, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Integer,
+    JSON,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.ext.mutable import MutableDict, MutableList
 
 from .db import Base
+
+
+ARRAY_TEXT = MutableList.as_mutable(ARRAY(Text))
+ARRAY_TEXT = ARRAY_TEXT.with_variant(MutableList.as_mutable(JSON()), "sqlite")
+
+JSONB_DICT = MutableDict.as_mutable(JSONB())
+JSONB_DICT = JSONB_DICT.with_variant(MutableDict.as_mutable(JSON()), "sqlite")
+
+JSONB_LIST = MutableList.as_mutable(JSONB())
+JSONB_LIST = JSONB_LIST.with_variant(MutableList.as_mutable(JSON()), "sqlite")
 
 
 class Post(Base):
@@ -14,8 +36,8 @@ class Post(Base):
     slug = Column(String(200), unique=True, index=True, nullable=False)
     locale = Column(String(10), nullable=False, default="pl-PL")
     section = Column(String(100), nullable=True)
-    categories = Column(ARRAY(Text), nullable=True)
-    tags = Column(ARRAY(Text), nullable=True)
+    categories = Column(ARRAY_TEXT, nullable=True)
+    tags = Column(ARRAY_TEXT, nullable=True)
     title = Column(String(200), nullable=False)
     description = Column(String(255), nullable=True)
     canonical = Column(String(255), nullable=True)
@@ -23,10 +45,10 @@ class Post(Base):
     headline = Column(String(200), nullable=True)
     lead = Column(Text, nullable=True)
     body_mdx = Column(Text, nullable=False)
-    geo_focus = Column(ARRAY(Text), nullable=True)
-    faq = Column(JSONB, nullable=True)
-    citations = Column(JSONB, nullable=True)
-    payload = Column(JSONB, nullable=True)
+    geo_focus = Column(ARRAY_TEXT, nullable=True)
+    faq = Column(JSONB_LIST, nullable=True)
+    citations = Column(JSONB_LIST, nullable=True)
+    payload = Column(JSONB_DICT, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
