@@ -9,6 +9,7 @@ from typing import Iterable, List
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
@@ -96,8 +97,12 @@ def document_from_post(post: Post) -> ArticleDocument:
     if post.payload:
         try:
             return ArticleDocument.model_validate(post.payload)
-        except ValueError:
-            logging.warning("Stored payload for slug %s is invalid, falling back to columns", post.slug)
+        except (ValueError, ValidationError) as exc:
+            logging.warning(
+                "Stored payload for slug %s is invalid, falling back to columns: %s",
+                post.slug,
+                exc,
+            )
     sections = extract_sections_from_body(post.body_mdx or "")
     return ArticleDocument(
         topic=post.title,
@@ -235,7 +240,7 @@ def create_article(
 
     try:
         document = ArticleDocument.model_validate(raw_document)
-    except ValueError as exc:
+    except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=502, detail=f"Invalid article payload: {exc}") from exc
 
     desired_slug_source = document.slug or document.seo.slug or document.seo.title or payload.topic
