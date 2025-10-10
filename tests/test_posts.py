@@ -214,13 +214,28 @@ def test_create_article_publishes_and_returns_document():
 
 def test_list_articles_returns_summaries():
     _reset_database()
-    created = _create_post()
+    first = _create_post()
+    second_document = deepcopy(SAMPLE_DOCUMENT)
+    second_document["topic"] = "Zaawansowana joga nidra"
+    second_document["slug"] = "zaawansowana-joga-nidra"
+    second_document["seo"] = dict(second_document["seo"])
+    second_document["seo"]["title"] = "Zaawansowana joga nidra – joga.yoga"
+    second_document["seo"]["slug"] = "zaawansowana-joga-nidra"
+    second_document["seo"]["canonical"] = (
+        "https://joga.yoga/artykuly/zaawansowana-joga-nidra"
+    )
+    second_document["article"] = dict(second_document["article"])
+    second_document["article"]["headline"] = (
+        "Zaawansowana joga nidra: prowadzenie praktyki"
+    )
+    second = _create_post(document=second_document)
 
     response = client.get("/articles")
     assert response.status_code == 200
     data = response.json()
-    assert data["total"] == 1
-    assert data["items"][0]["slug"] == created.slug
+    assert data["total"] == 2
+    assert len(data["items"]) == 2
+    assert {item["slug"] for item in data["items"]} == {first.slug, second.slug}
 
 
 def test_get_article_returns_document_payload():

@@ -7,6 +7,15 @@ Backend service for managing blog content and taxonomy.
 - `DATABASE_URL` — SQLAlchemy database URL (PostgreSQL in production).
 - `APP_ENV` — set to `prod` in production to restrict CORS to trusted origins. Defaults to `dev`.
 
+## Migrations
+
+Run the Alembic migrations after pulling new changes (including the `posts.payload`
+column) to keep the database schema in sync:
+
+```sh
+alembic upgrade head
+```
+
 ## Seeding
 
 ```sh

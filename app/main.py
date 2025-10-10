@@ -180,7 +180,12 @@ def list_articles(
             | func.lower(Post.lead).like(like)
             | func.lower(Post.headline).like(like)
         )
-    total = query.count()
+    total = (
+        query.order_by(None)
+        .with_entities(func.count(Post.id))
+        .scalar()
+    )
+    total = int(total or 0)
     posts = (
         query.order_by(Post.created_at.desc())
         .offset(offset)
