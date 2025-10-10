@@ -20,8 +20,22 @@ Backend service for managing blog content and taxonomy.
 - `GET /rubrics` — list rubrics (active by default, all with `?all=true`).
 - `GET /posts` — paginated list of posts with optional search and section filter.
 - `GET /posts/{slug}` — fetch a single post by slug.
-- `GET /articles` — alias for `/posts`.
-- `GET /articles/{slug}` — alias for `/posts/{slug}`.
+- `GET /articles` — paginated list of articles returning an envelope with pagination metadata.
+- `GET /articles/{slug}` — fetch a single article document under the `post` key.
+
+### Verifying article endpoints
+
+Use the following commands against your deployment to ensure the `/articles` routes
+are exposed and return the expected envelopes:
+
+```sh
+curl -s "https://<api-host>/openapi.json" | jq '.paths | keys | .[]' | grep '/articles'
+curl -s "https://<api-host>/articles" | jq '{page, per_page, total, items}'
+curl -s "https://<api-host>/articles/<slug>" | jq '.post.slug'
+```
+
+The list endpoint must return `page`, `per_page`, `total`, and `items`. The detail
+endpoint wraps the document inside the `post` key.
 
 AWS_REGION=eu-central-1
 ACCOUNT_ID=685716749010
