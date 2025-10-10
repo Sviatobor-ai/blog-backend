@@ -180,6 +180,13 @@ class FakeGenerator:
         return document
 
 
+class InvalidGenerator:
+    is_configured = True
+
+    def generate_article(self, *, topic: str, rubric: str, keywords=None, guidance=None):
+        return {"slug": 123}
+
+
 def test_create_article_publishes_and_returns_document():
     _reset_database()
     app.dependency_overrides[get_generator] = lambda: FakeGenerator()
@@ -227,6 +234,23 @@ def test_get_article_returns_document_payload():
     assert len(document["article"]["sections"]) == 4
 
 
+def test_get_article_falls_back_when_payload_invalid():
+    _reset_database()
+    created = _create_post()
+
+    with SessionLocal() as session:
+        stored = session.query(Post).filter(Post.id == created.id).one()
+        stored.payload = {"slug": 123}
+        session.add(stored)
+        session.commit()
+
+    response = client.get(f"/articles/{created.slug}")
+    assert response.status_code == 200
+    document = response.json()["post"]
+    assert document["slug"] == created.slug
+    assert document["article"]["sections"]
+
+
 def test_openapi_includes_article_routes():
     schema = client.get("/openapi.json").json()
 
@@ -243,3 +267,22 @@ def test_schema_endpoint_returns_expected_shape():
     for field in ["topic", "slug", "article", "aeo"]:
         assert field in schema["required"]
         assert field in schema["properties"]
+
+
+def test_create_article_returns_502_when_generator_returns_invalid_payload():
+    _reset_database()
+    app.dependency_overrides[get_generator] = lambda: InvalidGenerator()
+
+    response = client.post(
+        "/articles",
+        json={
+            "topic": "Niepoprawny artykuł",
+            "rubric_code": None,
+            "keywords": [],
+        },
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 502
+    assert "Invalid article payload" in response.json()["detail"]
