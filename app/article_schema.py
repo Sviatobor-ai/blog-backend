@@ -9,6 +9,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
     "$id": "https://joga.yoga/schemas/polish-article.json",
     "title": "PolishRetreatArticle",
     "type": "object",
+    "additionalProperties": False,
     "required": ["topic", "slug", "locale", "taxonomy", "seo", "article", "aeo"],
     "properties": {
         "topic": {
@@ -28,6 +29,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
         },
         "taxonomy": {
             "type": "object",
+            "additionalProperties": False,
             "required": ["section", "categories", "tags"],
             "properties": {
                 "section": {
@@ -48,6 +50,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
         },
         "seo": {
             "type": "object",
+            "additionalProperties": False,
             "required": ["title", "description", "slug", "canonical", "robots"],
             "properties": {
                 "title": {
@@ -67,6 +70,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                 },
                 "canonical": {
                     "type": "string",
+                    "description": "Pełny adres kanoniczny (http/https).",
                     "format": "uri",
                 },
                 "robots": {
@@ -77,6 +81,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
         },
         "article": {
             "type": "object",
+            "additionalProperties": False,
             "required": ["headline", "lead", "sections", "citations"],
             "properties": {
                 "headline": {
@@ -93,13 +98,14 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                     "minItems": 4,
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
                         "required": ["title", "body"],
                         "properties": {
                             "title": {"type": "string"},
                             "body": {
                                 "type": "string",
                                 "minLength": 400,
-                                "description": "Sekcja artykułu z akapitami i wypunktowaniem, jeżeli potrzebne.",
+                                "description": "Sekcja artykułu z akapitami i wypunktowaniem, jeśli potrzebne.",
                             },
                         },
                     },
@@ -110,12 +116,14 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                     "items": {
                         "type": "string",
                         "format": "uri",
+                        "description": "Źródło w postaci pełnego URL (http/https).",
                     },
                 },
             },
         },
         "aeo": {
             "type": "object",
+            "additionalProperties": False,
             "required": ["geo_focus", "faq"],
             "properties": {
                 "geo_focus": {
@@ -129,6 +137,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                     "maxItems": 3,
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
                         "required": ["question", "answer"],
                         "properties": {
                             "question": {"type": "string"},

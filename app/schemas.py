@@ -12,7 +12,7 @@ class ArticleSection(BaseModel):
     """Represents a single markdown section of the article body."""
 
     title: str = Field(..., min_length=3)
-    body: str = Field(..., min_length=200)
+    body: str = Field(..., min_length=400)
 
 
 class ArticleFAQ(BaseModel):
@@ -26,42 +26,42 @@ class ArticleContent(BaseModel):
     """Article narrative with structured sections."""
 
     headline: str
-    lead: str
-    sections: List[ArticleSection]
-    citations: List[HttpUrl | str] = Field(default_factory=list)
+    lead: str = Field(..., min_length=250)
+    sections: List[ArticleSection] = Field(..., min_length=4)
+    citations: List[HttpUrl] = Field(..., min_length=2)
 
 
 class ArticleSEO(BaseModel):
     """SEO metadata used across the platform."""
 
-    title: str
-    description: str
-    slug: str
-    canonical: HttpUrl | str
-    robots: str
+    title: str = Field(..., max_length=70)
+    description: str = Field(..., min_length=140, max_length=160)
+    slug: str = Field(..., pattern=r"^[a-z0-9-]{3,200}$")
+    canonical: HttpUrl
+    robots: Literal["index,follow"] = "index,follow"
 
 
 class ArticleTaxonomy(BaseModel):
     """Classification of the article on the site."""
 
     section: str
-    categories: List[str]
-    tags: List[str]
+    categories: List[str] = Field(..., min_length=1)
+    tags: List[str] = Field(..., min_length=3)
 
 
 class ArticleAEO(BaseModel):
     """Answer Engine Optimisation data: geo focus and FAQ."""
 
-    geo_focus: List[str]
-    faq: List[ArticleFAQ]
+    geo_focus: List[str] = Field(..., min_length=1)
+    faq: List[ArticleFAQ] = Field(..., min_length=2, max_length=3)
 
 
 class ArticleDocument(BaseModel):
     """Complete structured article returned by the assistant."""
 
-    topic: str
-    slug: str
-    locale: str = "pl-PL"
+    topic: str = Field(..., min_length=5)
+    slug: str = Field(..., pattern=r"^[a-z0-9-]{3,200}$")
+    locale: Literal["pl-PL"] = "pl-PL"
     taxonomy: ArticleTaxonomy
     seo: ArticleSEO
     article: ArticleContent
@@ -142,7 +142,3 @@ class ArticleListResponse(BaseModel):
     items: List[ArticleSummary]
 
 
-class ArticleDetailResponse(BaseModel):
-    """Single article response body."""
-
-    post: ArticleDocument
