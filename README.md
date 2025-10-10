@@ -26,7 +26,7 @@ Backend service for managing blog content and taxonomy.
 AWS_REGION=eu-central-1
 ACCOUNT_ID=685716749010
 REPO=blog-backend
-TAG=prod-2
+TAG=prod-3
 IMAGE_URI=$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO:$TAG
 
 aws ecr get-login-password --region $AWS_REGION \
@@ -35,3 +35,9 @@ aws ecr get-login-password --region $AWS_REGION \
 docker build -t $REPO:$TAG .
 docker tag  $REPO:$TAG $IMAGE_URI
 docker push $IMAGE_URI
+
+SERVICE_ARN="arn:aws:apprunner:eu-central-1:685716749010:service/autoblogger-backend/08a8286c5d1c4b71b3c970b046d45cc2"
+aws apprunner start-deployment --service-arn "$SERVICE_ARN"
+
+uvicorn app.main:app --reload --port 8000
+# Then open http://localhost:8000/health
