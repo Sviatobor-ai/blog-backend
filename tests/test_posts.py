@@ -41,52 +41,63 @@ SAMPLE_DOCUMENT = {
     },
     "seo": {
         "title": "Joga nidra dla początkujących – joga.yoga",
-        "description": "Poznaj podstawy jogi nidry, aby wzmocnić regenerację, odprężyć układ nerwowy i odnaleźć spokojny rytm dnia.",
+        "description": (
+            "Dowiedz się, jak zacząć praktykę jogi nidry, by uspokoić układ nerwowy, poprawić regenerację i zbudować"
+            " wieczorny rytuał relaksu podczas wyjazdów wellness."
+        ),
         "slug": "joga-nidra-dla-poczatkujacych",
         "canonical": "https://joga.yoga/artykuly/joga-nidra-dla-poczatkujacych",
         "robots": "index,follow",
     },
     "article": {
         "headline": "Joga nidra dla początkujących: pierwszy krok do głębokiego relaksu",
-    "lead": (
-        "Joga nidra to prowadzone wejście w stan głębokiego odprężenia, które możesz praktykować w domu oraz na wyjazdach "
-        "regeneracyjnych, aby ukoić układ nerwowy i świadomie zadbać o higienę snu nawet w intensywnym grafiku dnia."
-    ),
+        "lead": (
+            "Joga nidra to prowadzone wejście w stan głębokiego odprężenia, które możesz praktykować w domu oraz na wyjazdach"
+            " regeneracyjnych, aby ukoić układ nerwowy i świadomie zadbać o higienę snu nawet w intensywnym grafiku dnia. "
+            "Dzięki konsekwencji w praktyce uczysz się zauważać subtelne sygnały ciała, wydłużasz fazę odpoczynku i tworzysz"
+            " rytuał, który wspiera codzienną równowagę."
+        ),
         "sections": [
             {
                 "title": "Czym jest joga nidra",
                 "body": (
-                    "Opisujemy historię jogi nidry, jej korzenie w tradycji tantricznej oraz współczesne badania wskazujące na "
-                    "korzystny wpływ na układ nerwowy. Szczegółowo omawiamy, jak naprzemienne fale mózgowe wspierają regenerację, "
-                    "dlaczego praktyka uznawana jest za jogiczny sen oraz w jaki sposób prowadzone wizualizacje scalają doświadczane "
-                    "emocje i ułatwiają odzyskanie równowagi."
+                    "Opisujemy historię jogi nidry, jej korzenie w tradycji tantrycznej oraz współczesne badania wskazujące na"
+                    " korzystny wpływ na układ nerwowy. Szczegółowo omawiamy, jak naprzemienne fale mózgowe wspierają regenerację,"
+                    " dlaczego praktyka uznawana jest za jogiczny sen oraz w jaki sposób prowadzone wizualizacje scalają"
+                    " doświadczane emocje i ułatwiają odzyskanie równowagi. Dodajemy przykłady z zajęć warsztatowych i relacji"
+                    " uczestników, którzy dzięki konsekwencji w praktyce odzyskali spokojny sen oraz poczucie zakorzenienia"
+                    " w ciele."
                 ),
             },
             {
                 "title": "Jak przygotować przestrzeń",
                 "body": (
-                    "Podpowiadamy, jakie akcesoria i rytuały stworzą atmosferę bezpieczeństwa. Od zasłonięcia okien i dobrania "
-                    "naturalnego oświetlenia, po wybór wspierających zapachów i kojącej muzyki. Prezentujemy sposoby na ułożenie "
-                    "ciała z pomocą koców, bolstera i podparć pod kolana, by kręgosłup i barki pozostały zrelaksowane przez całą "
-                    "sesję. Wskazujemy, jak zadbać o termikę ciała i komunikację z grupą, aby każdy czuł się komfortowo."
+                    "Podpowiadamy, jakie akcesoria i rytuały stworzą atmosferę bezpieczeństwa. Od zasłonięcia okien i dobrania"
+                    " naturalnego oświetlenia, po wybór wspierających zapachów i kojącej muzyki. Prezentujemy sposoby na ułożenie"
+                    " ciała z pomocą koców, bolstera i podparć pod kolana, by kręgosłup i barki pozostały zrelaksowane przez całą"
+                    " sesję. Wskazujemy, jak zadbać o termikę ciała i komunikację z grupą, aby każdy czuł się komfortowo, oraz"
+                    " jak przygotować notatnik do zapisania wrażeń po praktyce, co pogłębia integrację doświadczeń."
                 ),
             },
             {
                 "title": "Przebieg praktyki krok po kroku",
                 "body": (
-                    "Wskazujemy strukturę sesji od ustawienia intencji po wyjście z relaksu. Wyjaśniamy znaczenie sankalpy, "
-                    "prowadzonego skanowania ciała, wizualizacji zmysłowej i wyciszenia oddechu. Dodajemy sugestie dla nauczyciela, "
-                    "jak modulować głos oraz tempo, a także jak reagować na pojawiające się emocje. Dzięki temu cała praktyka staje "
-                    "się przewidywalna i sprzyja głębokiemu poczuciu bezpieczeństwa."
+                    "Wskazujemy strukturę sesji od ustawienia intencji po wyjście z relaksu. Wyjaśniamy znaczenie sankalpy,"
+                    " prowadzonego skanowania ciała, wizualizacji zmysłowej i wyciszenia oddechu. Dodajemy sugestie dla"
+                    " nauczyciela, jak modulować głos oraz tempo, a także jak reagować na pojawiające się emocje. Przypominamy"
+                    " o łagodnym przywracaniu ruchu w dłoniach i stopach oraz o czasie na integrację wrażeń, co pozwala utrzymać"
+                    " poczucie bezpieczeństwa i zakotwiczenia przez resztę dnia."
                 ),
             },
             {
                 "title": "Integracja po zakończeniu",
                 "body": (
-                    "Proponujemy krótkie notatki refleksji i delikatny ruch, aby utrwalić efekty. Sugestie obejmują prowadzone "
-                    "rozciąganie dłoni i stóp, miękkie przeciąganie kręgosłupa oraz zapisanie odczuć w dzienniku wdzięczności. "
-                    "Zachęcamy do krótkiej wymiany wrażeń w grupie oraz zaplanowania domowej praktyki, by oddech i poczucie lekkości "
-                    "towarzyszyły uczestnikom na co dzień."
+                    "Proponujemy krótkie notatki refleksji i delikatny ruch, aby utrwalić efekty. Sugestie obejmują prowadzone"
+                    " rozciąganie dłoni i stóp, miękkie przeciąganie kręgosłupa oraz zapisanie odczuć w dzienniku wdzięczności."
+                    " Zachęcamy do krótkiej wymiany wrażeń w grupie oraz zaplanowania domowej praktyki, by oddech i poczucie"
+                    " lekkości towarzyszyły uczestnikom na co dzień. Pokazujemy także, jak wykorzystać aromaterapię lub krótką"
+                    " medytację po zajęciach, aby pogłębić efekt regeneracji i utrzymać dobre nawyki jeszcze długo po powrocie"
+                    " do domu."
                 ),
             },
         ],
@@ -127,7 +138,7 @@ def _create_post(document: Dict[str, Any] | None = None, **overrides):
         "tags": payload.taxonomy.tags,
         "title": payload.seo.title,
         "description": payload.seo.description,
-        "canonical": payload.seo.canonical,
+        "canonical": str(payload.seo.canonical),
         "robots": payload.seo.robots,
         "headline": payload.article.headline,
         "lead": payload.article.lead,
@@ -136,8 +147,8 @@ def _create_post(document: Dict[str, Any] | None = None, **overrides):
         ),
         "geo_focus": payload.aeo.geo_focus,
         "faq": [faq.model_dump() for faq in payload.aeo.faq],
-        "citations": payload.article.citations,
-        "payload": payload.model_dump(),
+        "citations": [str(url) for url in payload.article.citations],
+        "payload": payload.model_dump(mode="json"),
     }
     defaults.update(overrides)
     with SessionLocal() as session:
@@ -244,7 +255,7 @@ def test_get_article_returns_document_payload():
 
     response = client.get(f"/articles/{created.slug}")
     assert response.status_code == 200
-    document = response.json()["post"]
+    document = response.json()
     assert document["slug"] == created.slug
     assert len(document["article"]["sections"]) == 4
 
@@ -261,7 +272,7 @@ def test_get_article_falls_back_when_payload_invalid():
 
     response = client.get(f"/articles/{created.slug}")
     assert response.status_code == 200
-    document = response.json()["post"]
+    document = response.json()
     assert document["slug"] == created.slug
     assert document["article"]["sections"]
 
