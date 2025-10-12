@@ -133,12 +133,19 @@ class ArticleSummary(BaseModel):
     updated_at: datetime
 
 
-class ArticleListResponse(BaseModel):
-    """Paginated list response."""
+class PaginationMeta(BaseModel):
+    """Pagination envelope returned alongside collection data."""
 
     page: int
     per_page: int
-    total: int
+    total_items: int
+    total_pages: int
+
+
+class ArticleListResponse(BaseModel):
+    """Paginated list response."""
+
+    meta: PaginationMeta
     items: List[ArticleSummary]
 
 

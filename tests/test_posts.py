@@ -244,9 +244,53 @@ def test_list_articles_returns_summaries():
     response = client.get("/articles")
     assert response.status_code == 200
     data = response.json()
-    assert data["total"] == 2
+    assert data["meta"]["total_items"] == 2
+    assert data["meta"]["total_pages"] == 1
+    assert data["meta"]["page"] == 1
+    assert data["meta"]["per_page"] == 10
     assert len(data["items"]) == 2
     assert {item["slug"] for item in data["items"]} == {first.slug, second.slug}
+
+
+def test_list_articles_supports_search_by_tags():
+    _reset_database()
+    _create_post(
+        tags=["joga", "regeneracja"],
+        title="Regeneracja z jogą",
+        slug="regeneracja-z-joga",
+    )
+    _create_post(
+        tags=["mindfulness"],
+        title="Mindfulness na wyjazdach",
+        slug="mindfulness-na-wyjazdach",
+    )
+
+    response = client.get("/articles", params={"q": "regener"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["meta"]["total_items"] == 1
+    assert data["items"][0]["slug"] == "regeneracja-z-joga"
+
+
+def test_list_articles_paginates_and_counts_filtered_results():
+    _reset_database()
+    for index in range(7):
+        _create_post(
+            slug=f"artykul-{index}",
+            title=f"Artykuł {index}",
+            section="Wellness" if index % 2 == 0 else "Inne",
+        )
+
+    response = client.get(
+        "/articles",
+        params={"per_page": 2, "page": 2, "section": "Wellness"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["meta"]["total_items"] == 4
+    assert data["meta"]["total_pages"] == 2
+    assert data["meta"]["page"] == 2
+    assert len(data["items"]) <= 2
 
 
 def test_get_article_returns_document_payload():

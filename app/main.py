@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 import re
 from functools import lru_cache
+from math import ceil
 from typing import Iterable, List
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
-from sqlalchemy import func, text
+from sqlalchemy import String, cast, func, text
 from sqlalchemy.orm import Session
 
 from .article_schema import ARTICLE_DOCUMENT_SCHEMA
@@ -276,6 +277,7 @@ def get_article_schema() -> dict:
     return ARTICLE_DOCUMENT_SCHEMA
 
 
+# NOTE: Keep query parameters aligned with frontend expectations.
 @app.get(
     "/articles",
     response_model=ArticleListResponse,
@@ -297,17 +299,19 @@ def list_articles(
         like = f"%{q.lower()}%"
         query = query.filter(
             func.lower(Post.title).like(like)
-            | func.lower(Post.lead).like(like)
-            | func.lower(Post.headline).like(like)
+            | func.lower(func.coalesce(cast(Post.tags, String), "")).like(like)
         )
-    total = (
+    total_items = (
         query.order_by(None)
         .with_entities(func.count(Post.id))
         .scalar()
     )
-    total = int(total or 0)
+    total_items = int(total_items or 0)
+    total_pages = 0
+    if total_items > 0:
+        total_pages = max(1, ceil(total_items / per_page))
     posts = (
-        query.order_by(Post.created_at.desc())
+        query.order_by(Post.updated_at.desc(), Post.created_at.desc())
         .offset(offset)
         .limit(per_page)
         .all()
@@ -323,7 +327,15 @@ def list_articles(
         )
         for post in posts
     ]
-    return ArticleListResponse(page=page, per_page=per_page, total=total, items=items)
+    return ArticleListResponse(
+        meta={
+            "page": page,
+            "per_page": per_page,
+            "total_items": total_items,
+            "total_pages": total_pages,
+        },
+        items=items,
+    )
 
 
 @app.get(
