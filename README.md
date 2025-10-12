@@ -29,7 +29,7 @@ alembic upgrade head
 - `GET /rubrics` — list rubrics (active by default, all with `?all=true`).
 - `GET /posts` — paginated list of posts with optional search and section filter.
 - `GET /posts/{slug}` — fetch a single post by slug.
-- `GET /articles` — paginated list of articles returning an envelope with pagination metadata.
+- `GET /articles` — paginated list of articles returning `{ meta, items }`.
 - `GET /articles/{slug}` — fetch a single article document under the `post` key.
 
 ### Verifying article endpoints
@@ -39,12 +39,16 @@ are exposed and return the expected envelopes:
 
 ```sh
 curl -s "https://<api-host>/openapi.json" | jq '.paths | keys | .[]' | grep '/articles'
-curl -s "https://<api-host>/articles" | jq '{page, per_page, total, items}'
+curl -s "https://<api-host>/articles" | jq '{meta, items}'
 curl -s "https://<api-host>/articles/<slug>" | jq '.post.slug'
 ```
 
-The list endpoint must return `page`, `per_page`, `total`, and `items`. The detail
-endpoint wraps the document inside the `post` key.
+The list endpoint must return the `{ meta, items }` envelope. The detail endpoint
+wraps the document inside the `post` key.
+
+## Changelog
+
+- /articles now returns `{ meta, items }`.
 
 AWS_REGION=eu-central-1
 ACCOUNT_ID=685716749010
