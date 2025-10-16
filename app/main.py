@@ -7,6 +7,7 @@ import re
 from functools import lru_cache
 from math import ceil
 from typing import Iterable, List
+import os
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,7 +29,7 @@ from .schemas import (
 from .services import ArticleGenerationError, OpenAIAssistantArticleGenerator, ensure_unique_slug, slugify_pl
 
 
-logging.basicConfig(level=logging.CRITICAL)
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
     title="wyjazdy-blog backend",
@@ -53,6 +54,13 @@ def get_db() -> Iterable[Session]:
     finally:
         db.close()
 
+@app.get("/health/openai")
+def health_openai():
+    return {
+        "OPENAI_API_KEY": bool(os.getenv("OPENAI_API_KEY")),
+        "OPENAI_ASSISTANT_ID": bool(os.getenv("OPENAI_ASSISTANT_ID")),
+        "OPENAI_API_KEY_len": len(os.getenv("OPENAI_API_KEY") or ""),
+    }
 
 @lru_cache
 def get_generator() -> OpenAIAssistantArticleGenerator:

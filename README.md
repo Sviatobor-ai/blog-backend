@@ -68,3 +68,6 @@ aws apprunner start-deployment --service-arn "$SERVICE_ARN"
 
 uvicorn app.main:app --reload --port 8000
 # Then open http://localhost:8000/health
+
+# Отключить конвертацию путей MSYS (важно для /aws/...)
+export MSYS2_ARG_CONV_EXCL="*"
