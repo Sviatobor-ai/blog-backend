@@ -19,6 +19,7 @@ from .article_schema import ARTICLE_DOCUMENT_SCHEMA
 from .config import DATABASE_URL, get_openai_settings
 from .db import SessionLocal, engine
 from .models import Post, Rubric
+from .routers.admin_page import admin_page_router
 from .schemas import (
     ArticleCreateRequest,
     ArticleDocument,
@@ -45,6 +46,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(admin_page_router)
 
 
 def get_db() -> Iterable[Session]:
