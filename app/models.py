@@ -75,3 +75,18 @@ class Rubric(Base):
     code = Column(String(64), unique=True, nullable=False, index=True)
     name_pl = Column(String(128), nullable=False)
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    token = Column(Text, nullable=False, unique=True, index=True)
+    profile_json = Column(JSONB_DICT, nullable=False, server_default=text("'{}'"))
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
