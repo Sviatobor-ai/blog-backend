@@ -50,7 +50,11 @@ def test_supadata_search_filters_short_and_long_videos():
         assert request.method == "GET"
         assert request.url.path.endswith("/youtube/search")
         assert request.headers["x-api-key"] == "test-key"
-        assert request.url.params["q"] == "test"
+        params = request.url.params
+        assert params["query"] == "test"
+        assert "q" not in params
+        assert "region" not in params
+        assert "language" not in params
         return httpx.Response(
             200,
             json={
