@@ -23,6 +23,27 @@ from ..schemas_admin import (
 admin_api_router = APIRouter(prefix="/admin", tags=["admin-api"])
 
 
+@admin_api_router.get("/status", include_in_schema=False)
+def admin_status(_: str = Depends(require_token)) -> dict:
+    """Return a minimal runner status payload for the admin UI."""
+
+    return {
+        "pending": 0,
+        "running": 0,
+        "done": 0,
+        "skipped": 0,
+        "failed": 0,
+        "runner_on": False,
+    }
+
+
+@admin_api_router.get("/queue", include_in_schema=False)
+def admin_queue(_: str = Depends(require_token)) -> dict:
+    """Return a minimal queue payload for the admin UI."""
+
+    return {"items": []}
+
+
 def _video_to_dict(video: SDVideo) -> AdminSearchVideo:
     return AdminSearchVideo(
         video_id=video.video_id,
@@ -52,7 +73,7 @@ def search_videos(
         region=payload.region,
         language=payload.language,
     )
-    filtered = [
+    filtered_videos = [
         video
         for video in videos
         if video.duration_seconds is None
@@ -61,7 +82,7 @@ def search_videos(
             and video.duration_seconds <= payload.max_duration_seconds
         )
     ]
-    items = [_video_to_dict(video) for video in filtered]
+    items = [_video_to_dict(video) for video in filtered_videos]
     return AdminSearchResponse(items=items)
 
 
