@@ -29,12 +29,13 @@ def get_supadata_client() -> SupaDataClient:
 
     global _SUPADATA_CLIENT
     if _SUPADATA_CLIENT is None:
-        api_key = get_supadata_key()
-        if not api_key:
+        try:
+            api_key = get_supadata_key()
+        except RuntimeError as exc:
             raise HTTPException(
                 status_code=503,
-                detail="SupaData integration is not configured",
-            )
+                detail=str(exc),
+            ) from exc
         _SUPADATA_CLIENT = SupaDataClient(api_key=api_key)
     return _SUPADATA_CLIENT
 

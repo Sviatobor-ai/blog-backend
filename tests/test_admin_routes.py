@@ -4,11 +4,13 @@ from pathlib import Path
 
 os.environ.setdefault("APP_ENV", "dev")
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_posts.db")
+os.environ.setdefault("SUPADATA_KEY", "test-key")
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.db import Base, SessionLocal, engine  # noqa: E402
@@ -134,6 +136,32 @@ def test_admin_search_filters_videos_by_duration() -> None:
     assert len(payload["items"]) == 1
     assert payload["items"][0]["video_id"] == "valid"
     assert payload["items"][0]["has_transcript"] is True
+
+    app.dependency_overrides.pop(get_supadata_client, None)
+
+
+def test_admin_search_returns_502_when_supadata_fails() -> None:
+    _ensure_admin_tokens()
+
+    class ErrorClient:
+        def search_youtube(self, **_: object) -> list[SDVideo]:  # pragma: no cover - stub helper
+            raise HTTPException(status_code=502, detail="supadata search failed")
+
+    app.dependency_overrides[get_supadata_client] = lambda: ErrorClient()
+
+    response = client.post(
+        "/admin/search",
+        headers={"X-Admin-Token": TOKENS[0]},
+        json={
+            "query": "test",
+            "limit": 10,
+            "min_duration_seconds": 60,
+            "max_duration_seconds": 1200,
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "supadata search failed"
 
     app.dependency_overrides.pop(get_supadata_client, None)
 
