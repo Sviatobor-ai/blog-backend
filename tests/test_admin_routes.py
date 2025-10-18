@@ -13,7 +13,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import User  # noqa: E402
+from app.dependencies import get_supadata_client  # noqa: E402
+from app.integrations.supadata import SDVideo  # noqa: E402
+from app.models import GenerationJob, User  # noqa: E402
 
 TOKENS = [
     "c2f1b8d2-8b6f-4c70-8a12-6a6b0d7e9a11",
@@ -73,5 +75,98 @@ def test_admin_dashboard_requires_valid_token() -> None:
     assert "Welcome to the Auto-Generator Console" in response_valid.text
 
 
+def test_admin_search_filters_videos_by_duration() -> None:
+    _ensure_admin_tokens()
+
+    class StubSupaData:
+        def search_youtube(self, **_: object) -> list[SDVideo]:
+            return [
+                SDVideo(
+                    video_id="valid",
+                    url="https://www.youtube.com/watch?v=valid",
+                    title="Valid",
+                    channel="Channel",
+                    duration_seconds=900,
+                    published_at="2024-01-01T00:00:00Z",
+                    description_snippet="desc",
+                    has_transcript=True,
+                ),
+                SDVideo(
+                    video_id="short",
+                    url="https://www.youtube.com/watch?v=short",
+                    title="Too short",
+                    channel="Channel",
+                    duration_seconds=30,
+                    published_at=None,
+                    description_snippet=None,
+                    has_transcript=None,
+                ),
+                SDVideo(
+                    video_id="long",
+                    url="https://www.youtube.com/watch?v=long",
+                    title="Too long",
+                    channel="Channel",
+                    duration_seconds=20000,
+                    published_at=None,
+                    description_snippet=None,
+                    has_transcript=False,
+                ),
+            ]
+
+    stub = StubSupaData()
+    app.dependency_overrides[get_supadata_client] = lambda: stub
+
+    response = client.post(
+        "/admin/search",
+        headers={"X-Admin-Token": TOKENS[0]},
+        json={
+            "query": "test",
+            "limit": 10,
+            "min_duration_seconds": 60,
+            "max_duration_seconds": 1200,
+            "region": "PL",
+            "language": "any",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["video_id"] == "valid"
+    assert payload["items"][0]["has_transcript"] is True
+
+    app.dependency_overrides.pop(get_supadata_client, None)
+
+
+def test_queue_plan_creates_generation_jobs() -> None:
+    _ensure_admin_tokens()
+    app.dependency_overrides.pop(get_supadata_client, None)
+    with SessionLocal() as session:
+        session.query(GenerationJob).delete()
+        session.commit()
+
+    response = client.post(
+        "/admin/queue/plan",
+        headers={"X-Admin-Token": TOKENS[0]},
+        json={
+            "video_urls": [
+                "https://www.youtube.com/watch?v=abc",
+                "https://www.youtube.com/watch?v=def",
+            ]
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["queued"] == 2
+    assert len(body["job_ids"]) == 2
+
+    with SessionLocal() as session:
+        jobs = session.query(GenerationJob).order_by(GenerationJob.id).all()
+        assert len(jobs) == 2
+        assert all(job.status == "pending" for job in jobs)
+
+
 def teardown_module(module):
+    app.dependency_overrides.clear()
     engine.dispose()

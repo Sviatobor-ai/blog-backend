@@ -1,5 +1,6 @@
 """Application configuration helpers."""
 
+import logging
 import os
 from functools import lru_cache
 
@@ -28,6 +29,16 @@ def get_openai_settings() -> dict[str, str | None]:
         "assistant_id": os.getenv("OPENAI_ASSISTANT_ID", "asst_N0YcJg0jXoqHJQeesdWtiiIc"),
         "assistant_fromvideo_id": os.getenv("OPENAI_ASSISTANT_FROMVIDEO_ID"),
     }
+
+
+@lru_cache
+def get_supadata_key() -> str | None:
+    """Return the configured SupaData API key and warn when missing."""
+
+    key = os.getenv("SUPADATA_KEY")
+    if not key:
+        logging.warning("SUPADATA_KEY is not configured; SupaData integration disabled")
+    return key
 
 
 DATABASE_URL = get_database_url()

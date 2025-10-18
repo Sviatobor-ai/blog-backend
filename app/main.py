@@ -16,9 +16,10 @@ from sqlalchemy import String, cast, func, text
 from sqlalchemy.orm import Session
 
 from .article_schema import ARTICLE_DOCUMENT_SCHEMA
-from .config import DATABASE_URL, get_openai_settings
+from .config import DATABASE_URL, get_openai_settings, get_supadata_key
 from .db import SessionLocal, engine
 from .models import Post, Rubric
+from .routers.admin_api import admin_api_router
 from .routers.admin_page import admin_page_router
 from .schemas import (
     ArticleCreateRequest,
@@ -28,6 +29,7 @@ from .schemas import (
     ArticleSummary,
 )
 from .services import ArticleGenerationError, OpenAIAssistantArticleGenerator, ensure_unique_slug, slugify_pl
+from .dependencies import shutdown_supadata_client
 
 
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +50,16 @@ app.add_middleware(
 )
 
 app.include_router(admin_page_router)
+app.include_router(admin_api_router)
+
+
+# Trigger SupaData configuration check at startup.
+get_supadata_key()
+
+
+@app.on_event("shutdown")
+def _shutdown_supadata_client() -> None:
+    shutdown_supadata_client()
 
 
 def get_db() -> Iterable[Session]:

@@ -1,17 +1,6 @@
 """Database models."""
 
-from sqlalchemy import (
-    BigInteger,
-    Boolean,
-    Column,
-    DateTime,
-    Integer,
-    JSON,
-    String,
-    Text,
-    func,
-    text,
-)
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, JSON, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 
@@ -90,3 +79,24 @@ class User(Base):
     profile_json = Column(JSONB_DICT, nullable=False, server_default=text("'{}'"))
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class GenerationJob(Base):
+    __tablename__ = "gen_jobs"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    source_url = Column(String(500), nullable=False)
+    status = Column(String(50), nullable=False, default="pending", index=True)
+    mode = Column(String(20), nullable=True)
+    text_length = Column(Integer, nullable=True)
+    last_error = Column(Text, nullable=True)
+    planned_at = Column(DateTime(timezone=True), nullable=True)
+    processed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
