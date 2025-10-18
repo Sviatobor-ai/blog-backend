@@ -9,7 +9,10 @@ from math import ceil
 from typing import Iterable, List
 import os
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from sqlalchemy import String, cast, func, text
@@ -40,6 +43,21 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def admin_request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    extra_fields = sorted(
+        {
+            str(error["loc"][-1])
+            for error in exc.errors()
+            if error.get("type") == "extra_forbidden" and error.get("loc")
+        }
+    )
+    if extra_fields:
+        detail = f"Unsupported filters: {', '.join(extra_fields)}"
+        return JSONResponse(status_code=400, content={"detail": detail})
+    return await request_validation_exception_handler(request, exc)
 
 app.add_middleware(
     CORSMiddleware,
