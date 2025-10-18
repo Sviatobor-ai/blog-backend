@@ -32,12 +32,13 @@ def get_openai_settings() -> dict[str, str | None]:
 
 
 @lru_cache
-def get_supadata_key() -> str | None:
-    """Return the configured SupaData API key and warn when missing."""
+def get_supadata_key() -> str:
+    """Return the configured SupaData API key or fail fast when missing."""
 
     key = os.getenv("SUPADATA_KEY")
     if not key:
-        logging.warning("SUPADATA_KEY is not configured; SupaData integration disabled")
+        raise RuntimeError("SUPADATA_KEY environment variable is required")
+    logging.getLogger(__name__).debug("supadata key loaded from environment")
     return key
 
 
