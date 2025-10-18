@@ -68,10 +68,6 @@ def search_videos(
     videos = supadata.search_youtube(
         query=payload.query,
         limit=payload.limit,
-        min_duration_seconds=payload.min_duration_seconds,
-        max_duration_seconds=payload.max_duration_seconds,
-        region=payload.region,
-        language=payload.language,
     )
     filtered_videos = [
         video

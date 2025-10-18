@@ -70,17 +70,13 @@ class SupaDataClient:
     def search_youtube(
         self,
         query: str,
-        limit: int,
-        min_duration_seconds: int,
-        max_duration_seconds: int,
-        region: Optional[str] = None,
-        language: Optional[str] = None,
+        limit: int | None = None,
     ) -> List[SDVideo]:
         """Call SupaData search endpoint and normalise the payload."""
 
         params: dict[str, Any] = {"query": query}
         if limit:
-            params["limit"] = int(max(1, limit))
+            params["limit"] = int(limit)
 
         try:
             response = self._client.get(
@@ -148,18 +144,7 @@ class SupaDataClient:
                     has_transcript=has_transcript,
                 )
             )
-        filtered: List[SDVideo] = []
-        for video in videos:
-            duration_seconds = video.duration_seconds
-            if duration_seconds is not None:
-                if duration_seconds < min_duration_seconds:
-                    continue
-                if duration_seconds > max_duration_seconds:
-                    continue
-            filtered.append(video)
-            if limit and len(filtered) >= limit:
-                break
-        return filtered
+        return videos
 
     # --- 2) PROBE/GET TRANSCRIPT ---
     def get_transcript_raw(self, url: str) -> Optional[str]:

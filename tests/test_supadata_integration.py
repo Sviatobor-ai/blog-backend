@@ -45,7 +45,7 @@ def _make_client(handler: httpx.MockTransport) -> SupaDataClient:
     return SupaDataClient(api_key="test-key", client=http_client, asr_poll_interval=0.0, asr_poll_attempts=3)
 
 
-def test_supadata_search_filters_short_and_long_videos():
+def test_supadata_search_maps_supadata_response():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path.endswith("/youtube/search")
@@ -82,13 +82,15 @@ def test_supadata_search_filters_short_and_long_videos():
     videos = client.search_youtube(
         query="test",
         limit=5,
-        min_duration_seconds=60,
-        max_duration_seconds=3600,
     )
 
-    assert len(videos) == 1
+    assert len(videos) == 3
     assert videos[0].video_id == "keep"
     assert videos[0].duration_seconds == 900
+    assert videos[1].video_id == "short"
+    assert videos[1].duration_seconds == 20
+    assert videos[2].video_id == "long"
+    assert videos[2].duration_seconds == 21600
 
 
 def test_supadata_search_non_success_raises_http_exception(caplog):
@@ -104,8 +106,6 @@ def test_supadata_search_non_success_raises_http_exception(caplog):
             client.search_youtube(
                 query="unauthorised",
                 limit=5,
-                min_duration_seconds=10,
-                max_duration_seconds=1000,
             )
 
     assert exc.value.status_code == 502

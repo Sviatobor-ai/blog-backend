@@ -126,8 +126,6 @@ def test_admin_search_filters_videos_by_duration() -> None:
             "limit": 10,
             "min_duration_seconds": 60,
             "max_duration_seconds": 1200,
-            "region": "PL",
-            "language": "any",
         },
     )
 
@@ -138,6 +136,26 @@ def test_admin_search_filters_videos_by_duration() -> None:
     assert payload["items"][0]["has_transcript"] is True
 
     app.dependency_overrides.pop(get_supadata_client, None)
+
+
+def test_admin_search_rejects_unsupported_filters() -> None:
+    _ensure_admin_tokens()
+
+    response = client.post(
+        "/admin/search",
+        headers={"X-Admin-Token": TOKENS[0]},
+        json={
+            "query": "test",
+            "limit": 10,
+            "min_duration_seconds": 60,
+            "max_duration_seconds": 1200,
+            "region": "PL",
+            "language": "any",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported filters: language, region"
 
 
 def test_admin_search_returns_502_when_supadata_fails() -> None:

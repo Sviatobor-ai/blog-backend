@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import AnyHttpUrl, BaseModel, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, conint, constr
 
 
 class AdminSearchRequest(BaseModel):
     """Incoming payload for SupaData-powered YouTube search."""
 
-    query: str = Field(..., min_length=2, max_length=300)
-    limit: int = Field(20, ge=1, le=100)
-    min_duration_seconds: int = Field(0, ge=0)
-    max_duration_seconds: int = Field(36000, ge=1)
-    region: Optional[str] = Field(default=None, max_length=5)
-    language: Optional[str] = Field(default=None, max_length=20)
+    query: constr(strip_whitespace=True, min_length=1)
+    limit: conint(ge=1, le=100) = 50
+    min_duration_seconds: conint(ge=0) = 600
+    max_duration_seconds: conint(gt=0) = 10800
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class AdminSearchVideo(BaseModel):
