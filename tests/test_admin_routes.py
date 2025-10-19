@@ -17,7 +17,8 @@ from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.dependencies import get_supadata_client  # noqa: E402
 from app.integrations.supadata import SDVideo  # noqa: E402
-from app.models import GenerationJob, User  # noqa: E402
+from app.models import GenJob, User  # noqa: E402
+from app.services.runner import get_runner  # noqa: E402
 
 TOKENS = [
     "c2f1b8d2-8b6f-4c70-8a12-6a6b0d7e9a11",
@@ -221,31 +222,78 @@ def test_queue_plan_creates_generation_jobs() -> None:
     _ensure_admin_tokens()
     app.dependency_overrides.pop(get_supadata_client, None)
     with SessionLocal() as session:
-        session.query(GenerationJob).delete()
+        session.query(GenJob).delete()
         session.commit()
 
+    payload_urls = [
+        "https://www.youtube.com/watch?v=abc",
+        "http://www.youtube.com/watch?v=def",
+    ]
     response = client.post(
         "/admin/queue/plan",
         headers={"X-Admin-Token": TOKENS[0]},
-        json={
-            "video_urls": [
-                "https://www.youtube.com/watch?v=abc",
-                "https://www.youtube.com/watch?v=def",
-            ]
-        },
+        json={"urls": payload_urls},
     )
 
     assert response.status_code == 201
     body = response.json()
-    assert body["queued"] == 2
-    assert len(body["job_ids"]) == 2
+    assert body["planned"] == 2
+    assert sorted(body["urls"]) == sorted(
+        {"https://www.youtube.com/watch?v=abc", "https://www.youtube.com/watch?v=def"}
+    )
 
     with SessionLocal() as session:
-        jobs = session.query(GenerationJob).order_by(GenerationJob.id).all()
+        jobs = session.query(GenJob).order_by(GenJob.id).all()
         assert len(jobs) == 2
         assert all(job.status == "pending" for job in jobs)
+        assert {job.url for job in jobs} == {
+            "https://www.youtube.com/watch?v=abc",
+            "https://www.youtube.com/watch?v=def",
+        }
+
+    response_dup = client.post(
+        "/admin/queue/plan",
+        headers={"X-Admin-Token": TOKENS[0]},
+        json={"urls": payload_urls},
+    )
+    assert response_dup.status_code == 201
+    assert response_dup.json()["planned"] == 0
+
+
+def test_admin_status_counts_jobs() -> None:
+    _ensure_admin_tokens()
+    with SessionLocal() as session:
+        session.query(GenJob).delete()
+        session.add_all(
+            [
+                GenJob(url="https://youtube.com/watch?v=pending", status="pending"),
+                GenJob(url="https://youtube.com/watch?v=running", status="running"),
+                GenJob(url="https://youtube.com/watch?v=done1", status="done", article_id=1),
+                GenJob(url="https://youtube.com/watch?v=done2", status="ready", article_id=2),
+                GenJob(url="https://youtube.com/watch?v=skip", status="skipped_no_raw"),
+                GenJob(url="https://youtube.com/watch?v=failed", status="failed"),
+            ]
+        )
+        session.commit()
+
+    runner = get_runner(lambda: SessionLocal(), get_supadata_client)
+    runner.stop()
+
+    response = client.get(
+        "/admin/status",
+        headers={"X-Admin-Token": TOKENS[0]},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pending"] == 1
+    assert payload["running"] == 1
+    assert payload["done"] == 2  # done + ready
+    assert payload["skipped"] == 1
+    assert payload["failed"] == 1
+    assert payload["runner_on"] is False
 
 
 def teardown_module(module):
     app.dependency_overrides.clear()
+    get_runner(lambda: SessionLocal(), get_supadata_client).stop()
     engine.dispose()

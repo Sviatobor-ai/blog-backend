@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from functools import lru_cache
 from typing import Any, Dict, Iterable
 
 try:  # pragma: no cover - optional dependency for tests
@@ -12,8 +13,8 @@ try:  # pragma: no cover - optional dependency for tests
 except ImportError:  # pragma: no cover - allow running without the package during tests
     OpenAI = None  # type: ignore[assignment]
 
-from .article_schema import ARTICLE_DOCUMENT_SCHEMA
-from .config import get_openai_settings
+from ..article_schema import ARTICLE_DOCUMENT_SCHEMA
+from ..config import get_openai_settings
 
 
 class ArticleGenerationError(RuntimeError):
@@ -155,6 +156,77 @@ class OpenAIAssistantArticleGenerator:
                 return None
 
 
+class OpenAIAssistantFromTranscriptGenerator(OpenAIAssistantArticleGenerator):
+    """Generate articles from raw transcripts using a dedicated assistant."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        assistant_id: str | None = None,
+    ) -> None:
+        settings = get_openai_settings()
+        super().__init__(
+            api_key=api_key if api_key is not None else settings.get("api_key"),
+            assistant_id=assistant_id
+            or settings.get("assistant_fromvideo_id")
+            or "asst_Vwus3Hrvn5jXMitwjqoYyRpe",
+        )
+
+    def generate_from_transcript(self, *, raw_text: str, source_url: str) -> Dict[str, Any]:
+        """Call the transcript assistant and return the structured payload."""
+
+        if not self._client:
+            raise ArticleGenerationError("OpenAI API key is not configured")
+
+        instructions = self._compose_transcript_prompt(raw_text=raw_text, source_url=source_url)
+        thread = self._client.beta.threads.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Jesteś głównym redaktorem polskojęzycznego portalu joga.yoga. "
+                        "Zachowujesz najwyższe standardy SEO oraz dbasz o ton ekspercki, empatyczny i praktyczny."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": instructions,
+                },
+            ]
+        )
+
+        run = self._client.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=self.assistant_id,
+        )
+        run = self._poll_run(thread_id=thread.id, run_id=run.id)
+        if run.status != "completed":
+            raise ArticleGenerationError(f"Assistant returned status {run.status}")
+
+        messages = self._client.beta.threads.messages.list(
+            thread_id=thread.id,
+            order="desc",
+            limit=1,
+        )
+        return self._extract_payload(messages.data)
+
+    def _compose_transcript_prompt(self, *, raw_text: str, source_url: str) -> str:
+        """Compose the transcript-based instructions for the assistant."""
+
+        schema_text = json.dumps(self.schema, ensure_ascii=False, indent=2)
+        transcript = raw_text.strip()
+        return (
+            "Pracujesz na podstawie transkryptu wideo (może być w innym języku). "
+            "Najpierw zrozum główne tezy materiału, przetłumacz treść na język polski, a następnie przygotuj pełny artykuł. "
+            "Artykuł musi być w języku polskim (pl-PL), zgodny z wymogami SEO/AEO, z sekcjami, FAQ i strukturą jak w schemacie. "
+            f"W polu seo.canonical ustaw dokładnie adres źródłowy: {source_url}. "
+            "Uwzględnij cytowania prowadzące do oryginalnego materiału oraz inne ważne źródła. "
+            "Zwróć wyłącznie JSON zgodny ze schematem, bez komentarzy ani dodatkowego tekstu. "
+            f"\nSchemat JSON: {schema_text}\n\nTranskrypt:\n\n{transcript}"
+        )
+
+
 def slugify_pl(value: str) -> str:
     """Slugify Polish strings to lowercase URL fragments."""
 
@@ -178,3 +250,10 @@ def ensure_unique_slug(existing_slugs: Iterable[str], desired_slug: str) -> str:
         index += 1
         candidate = f"{base}-{index}"
     return candidate
+
+
+@lru_cache
+def get_transcript_generator() -> OpenAIAssistantFromTranscriptGenerator:
+    """Return a cached assistant instance dedicated to transcript processing."""
+
+    return OpenAIAssistantFromTranscriptGenerator()

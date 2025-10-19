@@ -81,22 +81,33 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
-class GenerationJob(Base):
+class GenJob(Base):
     __tablename__ = "gen_jobs"
     __table_args__ = {"sqlite_autoincrement": True}
 
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
-    source_url = Column(String(500), nullable=False)
-    status = Column(String(50), nullable=False, default="pending", index=True)
+    url = Column(Text, nullable=False)
+    status = Column(String(50), nullable=False, server_default=text("'pending'"), index=True)
+    error = Column(Text, nullable=True)
+    article_id = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    user_id = Column(BigInteger, nullable=True)
+    # Legacy columns kept for backward compatibility with early tooling.
+    source_url = Column(String(500), nullable=True)
     mode = Column(String(20), nullable=True)
     text_length = Column(Integer, nullable=True)
     last_error = Column(Text, nullable=True)
     planned_at = Column(DateTime(timezone=True), nullable=True)
     processed_at = Column(DateTime(timezone=True), nullable=True, index=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
     )
+
+
+# Backwards compatibility alias for legacy imports.
+GenerationJob = GenJob
