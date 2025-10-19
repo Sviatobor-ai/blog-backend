@@ -115,8 +115,9 @@ def health_openai():
 def get_generator() -> OpenAIAssistantArticleGenerator:
     settings = get_openai_settings()
     return OpenAIAssistantArticleGenerator(
-        api_key=settings.get("api_key"),
-        assistant_id=settings.get("assistant_id"),
+        api_key=settings.api_key,
+        assistant_id=settings.assistant_id,
+        request_timeout_s=settings.request_timeout_s,
     )
 
 
