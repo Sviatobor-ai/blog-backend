@@ -31,6 +31,23 @@ def _fetch_raw_text(supadata: SupaDataClient, url: str) -> Optional[str]:
     return supadata.asr_transcribe_raw(url)
 
 
+def _finalise_job(
+    session: Session,
+    job: GenJob,
+    *,
+    status: str,
+    error: Optional[str] = None,
+    article_id: Optional[int] = None,
+) -> None:
+    job.status = status
+    job.error = error
+    job.last_error = error
+    job.article_id = article_id
+    job.finished_at = _now()
+    session.add(job)
+    session.commit()
+
+
 def process_url_once(
     db: Session,
     *,
@@ -39,7 +56,11 @@ def process_url_once(
 ) -> tuple[bool, Optional[int], Optional[str]]:
     """Execute the transcript→article pipeline synchronously."""
 
-    text = _fetch_raw_text(supadata, url)
+    try:
+        text = _fetch_raw_text(supadata, url)
+    except Exception as exc:
+        logger.warning("pipeline supadata-fail url=%s err=%s", url, exc)
+        return False, None, str(exc)
     if not text:
         return False, None, "no transcript/asr text"
     generator = get_transcript_generator()
@@ -151,19 +172,31 @@ class GenRunner:
             logger.warning("gen-runner job-skip id=%s reason=missing-url", job.id)
             return
 
-        supadata = self._supadata_factory()
-        text = _fetch_raw_text(supadata, url)
+        try:
+            supadata = self._supadata_factory()
+            text = _fetch_raw_text(supadata, url)
+        except Exception as exc:
+            error_message = str(exc)[:500]
+            _finalise_job(session, job, status="failed", error=error_message)
+            logger.warning("gen-runner job-fail id=%s reason=supadata err=%s", job.id, exc)
+            return
         if not text:
-            job.status = "skipped"
-            job.error = "no transcript/asr text"
-            job.last_error = job.error
-            job.finished_at = _now()
-            session.add(job)
-            session.commit()
+            _finalise_job(session, job, status="skipped", error="no transcript/asr text")
             logger.warning("gen-runner job-skip id=%s reason=no-text", job.id)
             return
 
         generator = get_transcript_generator()
+        text_chars = len(text)
+        try:
+            text_bytes = len(text.encode("utf-8"))
+        except Exception:  # pragma: no cover - very unlikely encoding errors
+            text_bytes = text_chars
+        logger.info(
+            "gen-runner text-length id=%s chars=%s bytes=%s",
+            job.id,
+            text_chars,
+            text_bytes,
+        )
         try:
             post = generate_article_from_raw(
                 session,
@@ -172,34 +205,25 @@ class GenRunner:
                 generator=generator,
             )
         except ArticleGenerationError as exc:
-            job.status = "failed"
-            job.error = str(exc)[:500]
-            job.last_error = job.error
-            job.finished_at = _now()
-            session.add(job)
-            session.commit()
+            error_message = str(exc)[:500]
+            _finalise_job(session, job, status="failed", error=error_message)
             logger.warning("gen-runner job-fail id=%s err=%s", job.id, exc)
             return
         except Exception as exc:  # pragma: no cover - defensive guard
-            job.status = "failed"
-            job.error = str(exc)[:500]
-            job.last_error = job.error
-            job.finished_at = _now()
-            session.add(job)
-            session.commit()
+            error_message = str(exc)[:500]
+            _finalise_job(session, job, status="failed", error=error_message)
             logger.exception("gen-runner unexpected failure id=%s", job.id)
             return
 
         session.refresh(post)
-        job.status = "done"
-        job.article_id = post.id
-        job.finished_at = _now()
-        job.error = None
-        job.last_error = None
-        session.add(job)
-        session.commit()
+        _finalise_job(session, job, status="done", article_id=post.id, error=None)
         elapsed = (job.finished_at - start_time).total_seconds()
-        logger.info("gen-runner job-done id=%s article_id=%s secs=%.2f", job.id, post.id, elapsed)
+        logger.info(
+            "gen-runner job-done id=%s article_id=%s secs=%.2f",
+            job.id,
+            post.id,
+            elapsed,
+        )
 
 
 _runner: GenRunner | None = None

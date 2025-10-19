@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import (
     AnyHttpUrl,
@@ -70,6 +70,18 @@ class AdminSearchResponse(BaseModel):
     """Envelope containing the search results."""
 
     items: List[AdminSearchVideo]
+
+
+class ProbeTranscriptsRequest(BaseModel):
+    """Batch probe payload for checking transcript availability."""
+
+    urls: List[AnyHttpUrl] = Field(..., min_length=1, max_length=50)
+
+
+class ProbeTranscriptsResponse(BaseModel):
+    """Map of URL to availability flag (True/False/None)."""
+
+    has: Dict[str, Optional[bool]]
 
 
 class QueuePlanRequest(BaseModel):
