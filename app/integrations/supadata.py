@@ -71,12 +71,22 @@ class SupaDataClient:
         self,
         query: str,
         limit: int | None = None,
+        *,
+        type_: str | None = None,
+        duration: str | None = None,
+        features: Optional[List[str]] = None,
     ) -> List[SDVideo]:
         """Call SupaData search endpoint and normalise the payload."""
 
         params: dict[str, Any] = {"query": query}
         if limit:
             params["limit"] = int(limit)
+        if type_:
+            params["type"] = type_
+        if duration:
+            params["duration"] = duration
+        if features:
+            params["features"] = ",".join(features)
 
         try:
             response = self._client.get(

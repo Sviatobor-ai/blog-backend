@@ -77,11 +77,31 @@ def test_admin_dashboard_requires_valid_token() -> None:
     assert "Welcome to the Auto-Generator Console" in response_valid.text
 
 
-def test_admin_search_filters_videos_by_duration() -> None:
+def test_admin_search_forwards_filters_and_maps_results() -> None:
     _ensure_admin_tokens()
 
     class StubSupaData:
-        def search_youtube(self, **_: object) -> list[SDVideo]:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def search_youtube(
+            self,
+            *,
+            query: str,
+            limit: int,
+            type_: str,
+            duration: str,
+            features: list[str],
+        ) -> list[SDVideo]:
+            self.calls.append(
+                {
+                    "query": query,
+                    "limit": limit,
+                    "type_": type_,
+                    "duration": duration,
+                    "features": features,
+                }
+            )
             return [
                 SDVideo(
                     video_id="valid",
@@ -94,24 +114,14 @@ def test_admin_search_filters_videos_by_duration() -> None:
                     has_transcript=True,
                 ),
                 SDVideo(
-                    video_id="short",
-                    url="https://www.youtube.com/watch?v=short",
-                    title="Too short",
-                    channel="Channel",
-                    duration_seconds=30,
+                    video_id="secondary",
+                    url="https://www.youtube.com/watch?v=secondary",
+                    title="Secondary",
+                    channel="Other",
+                    duration_seconds=None,
                     published_at=None,
                     description_snippet=None,
                     has_transcript=None,
-                ),
-                SDVideo(
-                    video_id="long",
-                    url="https://www.youtube.com/watch?v=long",
-                    title="Too long",
-                    channel="Channel",
-                    duration_seconds=20000,
-                    published_at=None,
-                    description_snippet=None,
-                    has_transcript=False,
                 ),
             ]
 
@@ -123,17 +133,29 @@ def test_admin_search_filters_videos_by_duration() -> None:
         headers={"X-Admin-Token": TOKENS[0]},
         json={
             "query": "test",
-            "limit": 10,
-            "min_duration_seconds": 60,
-            "max_duration_seconds": 1200,
+            "limit": 7,
+            "type": "playlist",
+            "duration": "long",
+            "features": ["subtitles", "location", "subtitles"],
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload["items"]) == 1
+    assert len(payload["items"]) == 2
     assert payload["items"][0]["video_id"] == "valid"
     assert payload["items"][0]["has_transcript"] is True
+    assert payload["items"][1]["video_id"] == "secondary"
+
+    assert len(stub.calls) == 1
+    call = stub.calls[0]
+    assert call == {
+        "query": "test",
+        "limit": 7,
+        "type_": "playlist",
+        "duration": "long",
+        "features": ["subtitles", "location"],
+    }
 
     app.dependency_overrides.pop(get_supadata_client, None)
 
@@ -146,9 +168,6 @@ def test_admin_search_rejects_unsupported_filters() -> None:
         headers={"X-Admin-Token": TOKENS[0]},
         json={
             "query": "test",
-            "limit": 10,
-            "min_duration_seconds": 60,
-            "max_duration_seconds": 1200,
             "region": "PL",
             "language": "any",
         },
@@ -156,6 +175,22 @@ def test_admin_search_rejects_unsupported_filters() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Unsupported filters: language, region"
+
+
+def test_admin_search_rejects_unsupported_features() -> None:
+    _ensure_admin_tokens()
+
+    response = client.post(
+        "/admin/search",
+        headers={"X-Admin-Token": TOKENS[0]},
+        json={
+            "query": "test",
+            "features": ["hdr"],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported features: hdr. Allowed: subtitles, location."
 
 
 def test_admin_search_returns_502_when_supadata_fails() -> None:
@@ -173,8 +208,6 @@ def test_admin_search_returns_502_when_supadata_fails() -> None:
         json={
             "query": "test",
             "limit": 10,
-            "min_duration_seconds": 60,
-            "max_duration_seconds": 1200,
         },
     )
 

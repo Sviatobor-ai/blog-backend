@@ -68,17 +68,11 @@ def search_videos(
     videos = supadata.search_youtube(
         query=payload.query,
         limit=payload.limit,
+        type_=payload.type,
+        duration=payload.duration,
+        features=payload.features or [],
     )
-    filtered_videos = [
-        video
-        for video in videos
-        if video.duration_seconds is None
-        or (
-            video.duration_seconds >= payload.min_duration_seconds
-            and video.duration_seconds <= payload.max_duration_seconds
-        )
-    ]
-    items = [_video_to_dict(video) for video in filtered_videos]
+    items = [_video_to_dict(video) for video in videos]
     return AdminSearchResponse(items=items)
 
 

@@ -47,6 +47,14 @@ app = FastAPI(
 
 @app.exception_handler(RequestValidationError)
 async def admin_request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    for error in exc.errors():
+        loc = error.get("loc") or ()
+        if "features" in loc:
+            detail = error.get("msg", "Invalid features")
+            prefix = "Value error, "
+            if detail.startswith(prefix):
+                detail = detail[len(prefix) :]
+            return JSONResponse(status_code=400, content={"detail": detail})
     extra_fields = sorted(
         {
             str(error["loc"][-1])
