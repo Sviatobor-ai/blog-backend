@@ -27,7 +27,7 @@ def admin_login_page(error: str | None = Query(default=None)) -> HTMLResponse:
     <html lang=\"en\">
       <head>
         <meta charset=\"utf-8\">
-        <title>Wiedza.joga.yoga — Admin Access</title>
+        <title>Admin Access</title>
         <style>
           body {{
             font-family: Arial, sans-serif;
@@ -82,7 +82,7 @@ def admin_login_page(error: str | None = Query(default=None)) -> HTMLResponse:
       </head>
       <body>
         <div class=\"container\">
-          <h1>Wiedza.joga.yoga — Admin Access</h1>
+          <h1>Admin Access</h1>
           {error_block}
           <form method=\"post\" action=\"/admin/login\">
             <input type=\"text\" name=\"token\" placeholder=\"Enter access token\" required>
@@ -160,7 +160,7 @@ def admin_dashboard(user: User = Depends(require_token)) -> HTMLResponse:
       </head>
       <body>
         <div class=\"wrapper\">
-          <h1>Welcome to the Auto-Generator Console</h1>
+          <h2>Welcome to the Auto-Generator Console</h2>
           <p>Token verified. You can proceed with admin operations.</p>
           <a class=\"logout\" href=\"/admin\">Logout</a>
         </div>

@@ -13,9 +13,9 @@ from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
-_SEARCH_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
-_TRANSCRIPT_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
-_ASR_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
+_SEARCH_TIMEOUT = httpx.Timeout(10.0, connect=10.0)
+_TRANSCRIPT_TIMEOUT = httpx.Timeout(10.0, connect=10.0)
+_ASR_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
 
 
 @dataclass
@@ -251,11 +251,23 @@ class SupaDataClient:
 
 
 def _extract_items(data: Any) -> Iterable[dict[str, Any]]:
-    if isinstance(data, dict):
-        items = data.get("items") or data.get("videos")
-        if isinstance(items, list):
-            return [item for item in items if isinstance(item, dict)]
+    if not isinstance(data, dict):
+        return []
+    # прямые массивы
+    for key in ("items", "videos", "results", "data"):
+        val = data.get(key)
+        if isinstance(val, list):
+            return [x for x in val if isinstance(x, dict)]
+    # вложенные контейнеры вида {"results": {"items":[...]}} или {"data":{"results":[...]}}
+    for key in ("results", "data"):
+        val = data.get(key)
+        if isinstance(val, dict):
+            for sub in ("items", "videos", "results"):
+                seq = val.get(sub)
+                if isinstance(seq, list):
+                    return [x for x in seq if isinstance(x, dict)]
     return []
+
 
 
 def _normalise_bool(value: Any) -> Optional[bool]:
