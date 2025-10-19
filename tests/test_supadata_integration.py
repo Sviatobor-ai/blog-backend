@@ -53,6 +53,9 @@ def test_supadata_search_maps_supadata_response():
         params = request.url.params
         assert params["query"] == "test"
         assert "q" not in params
+        assert params["type"] == "video"
+        assert params["duration"] == "medium"
+        assert "features" not in params
         assert "region" not in params
         assert "language" not in params
         return httpx.Response(
@@ -82,6 +85,9 @@ def test_supadata_search_maps_supadata_response():
     videos = client.search_youtube(
         query="test",
         limit=5,
+        type_="video",
+        duration="medium",
+        features=[],
     )
 
     assert len(videos) == 3
@@ -106,6 +112,9 @@ def test_supadata_search_non_success_raises_http_exception(caplog):
             client.search_youtube(
                 query="unauthorised",
                 limit=5,
+                type_="video",
+                duration="medium",
+                features=[],
             )
 
     assert exc.value.status_code == 502
