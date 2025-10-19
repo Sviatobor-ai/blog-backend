@@ -93,20 +93,47 @@ def test_supadata_search_non_success_raises_http_exception(caplog):
     assert "supadata-search status=401" in caplog.text
 
 
-def test_get_transcript_concatenates_segments():
+def test_get_transcript_parses_content_variants():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        if request.url.path.endswith("/youtube/transcript"):
-            return httpx.Response(
-                200,
-                json={"segments": [{"text": "Hello"}, {"text": "World"}]},
-            )
-        raise AssertionError("unexpected path")
+        assert request.url.path.endswith("/transcript")
+        assert request.url.params["text"] == "true"
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "segments": [
+                        {"content": "Hello"},
+                        {"text": "World"},
+                    ]
+                }
+            },
+        )
 
     client = _make_client(httpx.MockTransport(handler))
 
     text = client.get_transcript_raw("https://youtube.com/watch?v=abc")
     assert text == "Hello World"
+
+
+def test_get_transcript_falls_back_to_youtube_endpoint():
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        path = request.url.path
+        if request.method == "GET" and path.endswith("/youtube/transcript"):
+            return httpx.Response(200, json={"content": "Legacy transcript"})
+        if request.method == "GET" and path.endswith("/transcript"):
+            return httpx.Response(404)
+        raise AssertionError("unexpected path")
+
+    client = _make_client(httpx.MockTransport(handler))
+
+    text = client.get_transcript_raw("https://youtube.com/watch?v=fallback")
+    assert text == "Legacy transcript"
+    assert calls[0].endswith("/transcript")
+    assert calls[1].endswith("/youtube/transcript")
 
 
 def test_get_transcript_returns_none_when_not_found():
@@ -122,7 +149,9 @@ def test_get_transcript_returns_none_when_not_found():
 def test_asr_transcribe_returns_text_when_synchronous():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
-        assert request.url.path.endswith("/youtube/asr")
+        assert request.url.path.endswith("/transcript")
+        body = request.read()
+        assert b"mode" in body
         return httpx.Response(200, json={"text": "Synchronous text"})
 
     client = _make_client(httpx.MockTransport(handler))
@@ -135,9 +164,9 @@ def test_asr_transcribe_polls_until_ready():
     poll_calls = {"count": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "POST" and request.url.path.endswith("/youtube/asr"):
+        if request.method == "POST" and request.url.path.endswith("/transcript"):
             return httpx.Response(200, json={"job_id": "job-1", "status": "processing"})
-        if request.method == "GET" and request.url.path.endswith("/youtube/asr/job-1"):
+        if request.method == "GET" and request.url.path.endswith("/transcript/job-1"):
             poll_calls["count"] += 1
             if poll_calls["count"] < 2:
                 return httpx.Response(200, json={"status": "processing"})
@@ -153,9 +182,60 @@ def test_asr_transcribe_polls_until_ready():
 
 def test_asr_transcribe_returns_none_on_error():
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, json={"error": "server"})
+        path = request.url.path
+        if path.endswith("/transcript") or path.endswith("/youtube/asr"):
+            return httpx.Response(500, json={"error": "server"})
+        raise AssertionError("unexpected path")
 
     client = _make_client(httpx.MockTransport(handler))
 
     text = client.asr_transcribe_raw("https://youtube.com/watch?v=err")
     assert text is None
+
+
+def test_asr_transcribe_falls_back_to_legacy_route():
+    sequence: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        sequence.append(f"{request.method}:{path}")
+        if request.method == "POST" and path.endswith("/transcript"):
+            return httpx.Response(404)
+        if request.method == "POST" and path.endswith("/youtube/asr"):
+            return httpx.Response(200, json={"job_id": "legacy-job"})
+        if request.method == "GET" and path.endswith("/youtube/asr/legacy-job"):
+            return httpx.Response(200, json={"text": "Legacy ASR"})
+        raise AssertionError("unexpected request")
+
+    client = _make_client(httpx.MockTransport(handler))
+
+    text = client.asr_transcribe_raw("https://youtube.com/watch?v=legacy")
+    assert text == "Legacy ASR"
+    assert sequence[0].endswith("/transcript")
+    assert any(item.startswith("POST:") and item.endswith("/youtube/asr") for item in sequence)
+
+
+def test_probe_transcripts_maps_availability_flags():
+    def handler(request: httpx.Request) -> httpx.Response:
+        url_param = request.url.params.get("url")
+        if url_param.endswith("has"):
+            return httpx.Response(200, json={"has_transcript": True})
+        if url_param.endswith("missing"):
+            return httpx.Response(404)
+        return httpx.Response(200, json={"status": "processing"})
+
+    client = _make_client(httpx.MockTransport(handler))
+
+    results = client.probe_transcripts(
+        [
+            "https://youtube.com/watch?v=has",
+            "https://youtube.com/watch?v=missing",
+            "https://youtube.com/watch?v=unknown",
+        ]
+    )
+
+    assert results == {
+        "https://youtube.com/watch?v=has": True,
+        "https://youtube.com/watch?v=missing": False,
+        "https://youtube.com/watch?v=unknown": None,
+    }

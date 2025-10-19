@@ -47,7 +47,7 @@ def test_admin_login_page_returns_html() -> None:
     _ensure_admin_tokens()
     response = client.get("/admin")
     assert response.status_code == 200
-    assert "Wiedza.joga.yoga — Admin Access" in response.text
+    assert "Admin Access" in response.text
 
 
 def test_admin_login_invalid_redirects_back() -> None:

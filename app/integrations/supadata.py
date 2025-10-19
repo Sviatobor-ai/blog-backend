@@ -13,9 +13,15 @@ from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
-_SEARCH_TIMEOUT = httpx.Timeout(10.0, connect=10.0)
-_TRANSCRIPT_TIMEOUT = httpx.Timeout(10.0, connect=10.0)
-_ASR_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
+_CONNECT_TIMEOUT = 10.0
+_SEARCH_TIMEOUT = 10.0
+_TRANSCRIPT_REQUEST_TIMEOUT = 10.0
+_ASR_REQUEST_TIMEOUT = 15.0
+_PROBE_REQUEST_TIMEOUT = 5.0
+
+# Single-operation budgets (seconds) to keep transcript/ASR calls bounded.
+_TRANSCRIPT_TOTAL_BUDGET = 90.0
+_ASR_TOTAL_BUDGET = 180.0
 
 
 @dataclass
@@ -42,7 +48,9 @@ class SupaDataClient:
         base_url: str = "https://api.supadata.ai/v1",
         client: httpx.Client | None = None,
         asr_poll_interval: float = 5.0,
-        asr_poll_attempts: int = 3,
+        asr_poll_attempts: int | None = None,
+        transcript_total_timeout: float = _TRANSCRIPT_TOTAL_BUDGET,
+        asr_total_timeout: float = _ASR_TOTAL_BUDGET,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -52,13 +60,20 @@ class SupaDataClient:
             self._client = httpx.Client(
                 base_url=self.base_url,
                 headers=headers,
-                timeout=_SEARCH_TIMEOUT,
+                timeout=_make_timeout(_SEARCH_TIMEOUT),
             )
         else:
             self._client = client
             self._client.headers.update(headers)
         self._asr_poll_interval = max(0.0, asr_poll_interval)
-        self._asr_poll_attempts = max(0, asr_poll_attempts)
+        self._transcript_budget = max(1.0, transcript_total_timeout)
+        self._asr_budget = max(1.0, asr_total_timeout)
+        if asr_poll_attempts is None:
+            interval = max(self._asr_poll_interval, 0.5)
+            derived_attempts = int(self._asr_budget // interval)
+            self._asr_poll_attempts = max(1, derived_attempts)
+        else:
+            self._asr_poll_attempts = max(1, asr_poll_attempts)
 
     def close(self) -> None:
         """Close the underlying HTTP client if owned by this instance."""
@@ -92,7 +107,7 @@ class SupaDataClient:
             response = self._client.get(
                 "/youtube/search",
                 params=params,
-                timeout=_SEARCH_TIMEOUT,
+                timeout=_make_timeout(_SEARCH_TIMEOUT),
             )
         except httpx.HTTPError as exc:  # pragma: no cover - network failures are logged
             logger.warning("supadata-search error query=%s err=%s", query, exc)
@@ -160,20 +175,24 @@ class SupaDataClient:
     def get_transcript_raw(self, url: str) -> Optional[str]:
         """Fetch transcript text without timestamps when available."""
 
+        deadline = time.monotonic() + self._transcript_budget
         endpoints = (
-            ("/youtube/transcript", {"url": url, "text": "true"}),
             ("/transcript", {"url": url, "text": "true"}),
+            ("/youtube/transcript", {"url": url, "text": "true"}),
         )
         for path, params in endpoints:
+            timeout_value = _remaining_timeout(deadline, _TRANSCRIPT_REQUEST_TIMEOUT)
+            if timeout_value is None:
+                break
             try:
                 response = self._client.get(
                     path,
                     params=params,
-                    timeout=_TRANSCRIPT_TIMEOUT,
+                    timeout=_make_timeout(timeout_value),
                 )
             except httpx.HTTPError as exc:
                 logger.warning("supadata-transcript error url=%s err=%s", url, exc)
-                return None
+                continue
             if response.status_code == httpx.codes.NOT_FOUND:
                 continue
             if response.status_code // 100 != 2:
@@ -182,71 +201,136 @@ class SupaDataClient:
                     response.status_code,
                     url,
                 )
-                return None
-            text = _normalise_text(response.json())
+                continue
+            payload = _safe_json(response)
+            text = _normalise_text(payload if payload is not None else response.text)
             if text:
                 return text
-            return None
         return None
 
     # --- 3) ASR (AUDIO → TEXT) ---
     def asr_transcribe_raw(self, url: str) -> Optional[str]:
         """Run the ASR pipeline and return recognised text when transcript missing."""
 
-        payload = {"url": url, "text": "true"}
-        try:
-            response = self._client.post(
-                "/youtube/asr",
-                json=payload,
-                timeout=_ASR_TIMEOUT,
-            )
-        except httpx.HTTPError as exc:
-            logger.warning("supadata-asr error url=%s err=%s", url, exc)
-            return None
-        if response.status_code == httpx.codes.NOT_FOUND:
-            return None
-        if response.status_code // 100 != 2:
-            logger.warning(
-                "supadata-asr status=%s url=%s",
-                response.status_code,
-                url,
-            )
-            return None
-        data = response.json()
-        text = _normalise_text(data)
-        if text:
-            return text
-        job_id = _extract_job_id(data)
-        if not job_id:
-            return None
-        status = _extract_status(data)
-        if status and status.lower() in {"failed", "error"}:
-            return None
-        for _ in range(self._asr_poll_attempts):
-            if self._asr_poll_interval:
-                time.sleep(self._asr_poll_interval)
+        deadline = time.monotonic() + self._asr_budget
+        flows = (
+            ("/transcript", "/transcript/{job_id}", {"url": url, "mode": "generate", "text": True}),
+            ("/youtube/asr", "/youtube/asr/{job_id}", {"url": url, "text": True}),
+        )
+        for start_path, poll_path, payload in flows:
+            timeout_value = _remaining_timeout(deadline, _ASR_REQUEST_TIMEOUT)
+            if timeout_value is None:
+                break
             try:
-                poll_response = self._client.get(
-                    f"/youtube/asr/{job_id}",
-                    timeout=_ASR_TIMEOUT,
+                response = self._client.post(
+                    start_path,
+                    json=payload,
+                    timeout=_make_timeout(timeout_value),
                 )
             except httpx.HTTPError as exc:
                 logger.warning("supadata-asr error url=%s err=%s", url, exc)
-                return None
-            if poll_response.status_code // 100 != 2:
+                continue
+            if response.status_code == httpx.codes.NOT_FOUND:
+                continue
+            if response.status_code // 100 != 2:
                 logger.warning(
                     "supadata-asr status=%s url=%s",
-                    poll_response.status_code,
+                    response.status_code,
                     url,
                 )
-                return None
-            poll_data = poll_response.json()
-            text = _normalise_text(poll_data)
+                continue
+            payload_data = _safe_json(response)
+            text = _normalise_text(payload_data if payload_data is not None else response.text)
             if text:
                 return text
-            status = _extract_status(poll_data)
+            job_id = _extract_job_id(payload_data)
+            if not job_id:
+                continue
+            status = _extract_status(payload_data)
+            if status and status.lower() in {"failed", "error"}:
+                continue
+            text = self._poll_asr_job(poll_path, job_id, deadline)
+            if text:
+                return text
+        return None
+
+    def probe_transcripts(self, urls: Iterable[str]) -> dict[str, Optional[bool]]:
+        """Return lightweight transcript availability flags for provided URLs."""
+
+        results: dict[str, Optional[bool]] = {}
+        for url in urls:
+            if not url:
+                results[url] = None
+                continue
+            try:
+                response = self._client.get(
+                    "/transcript",
+                    params={"url": url, "text": "false"},
+                    timeout=_make_timeout(_PROBE_REQUEST_TIMEOUT),
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("supadata-probe error url=%s err=%s", url, exc)
+                results[url] = None
+                continue
+            if response.status_code == httpx.codes.NOT_FOUND:
+                results[url] = False
+                continue
+            if response.status_code // 100 != 2:
+                logger.warning(
+                    "supadata-probe status=%s url=%s",
+                    response.status_code,
+                    url,
+                )
+                results[url] = None
+                continue
+            payload = _safe_json(response)
+            if isinstance(payload, dict):
+                for key in ("has_transcript", "available", "hasTranscript"):
+                    if key in payload:
+                        normalised = _normalise_bool(payload[key])
+                        if normalised is not None:
+                            results[url] = normalised
+                            break
+                if url in results:
+                    continue
+            text = _normalise_text(payload if payload is not None else response.text)
+            results[url] = True if text else None
+        return results
+
+    def _poll_asr_job(self, path_template: str, job_id: str, deadline: float) -> Optional[str]:
+        """Poll SupaData job endpoint until finished or timeout."""
+
+        for _ in range(self._asr_poll_attempts):
+            timeout_value = _remaining_timeout(deadline, _ASR_REQUEST_TIMEOUT)
+            if timeout_value is None:
+                break
+            try:
+                response = self._client.get(
+                    path_template.format(job_id=job_id),
+                    timeout=_make_timeout(timeout_value),
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("supadata-asr error job=%s err=%s", job_id, exc)
+                return None
+            if response.status_code // 100 != 2:
+                logger.warning(
+                    "supadata-asr status=%s job=%s",
+                    response.status_code,
+                    job_id,
+                )
+                return None
+            payload = _safe_json(response)
+            text = _normalise_text(payload if payload is not None else response.text)
+            if text:
+                return text
+            status = _extract_status(payload)
             if status and status.lower() in {"failed", "error"}:
                 return None
+            if self._asr_poll_interval:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(self._asr_poll_interval, max(0.0, remaining)))
         return None
 
 
@@ -270,6 +354,28 @@ def _extract_items(data: Any) -> Iterable[dict[str, Any]]:
 
 
 
+def _safe_json(response: httpx.Response) -> Any | None:
+    try:
+        return response.json()
+    except ValueError:
+        logger.warning("supadata-invalid-json path=%s", response.request.url.path)
+        return None
+
+
+def _remaining_timeout(deadline: float, default: float) -> float | None:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return None
+    return min(default, remaining)
+
+
+def _make_timeout(total: float) -> httpx.Timeout:
+    total = max(0.1, total)
+    connect = min(_CONNECT_TIMEOUT, total)
+    return httpx.Timeout(timeout=total, connect=connect)
+
+
+
 def _normalise_bool(value: Any) -> Optional[bool]:
     if isinstance(value, bool):
         return value
@@ -283,25 +389,48 @@ def _normalise_bool(value: Any) -> Optional[bool]:
 
 
 def _normalise_text(data: Any) -> Optional[str]:
-    if isinstance(data, dict):
-        text = data.get("text")
-        if isinstance(text, str) and text.strip():
-            return text.strip()
-        segments = data.get("segments") or data.get("results") or []
-        parts = []
-        for segment in segments if isinstance(segments, list) else []:
-            if isinstance(segment, dict):
-                segment_text = segment.get("text")
-            else:
-                segment_text = segment
-            if isinstance(segment_text, str) and segment_text.strip():
-                parts.append(segment_text.strip())
-        if parts:
-            return " ".join(parts)
-    elif isinstance(data, list):
-        parts = [str(part).strip() for part in data if str(part).strip()]
-        if parts:
-            return " ".join(parts)
+    parts: list[str] = []
+    seen: set[str] = set()
+
+    def _collect(value: Any) -> None:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped and stripped not in seen:
+                parts.append(stripped)
+                seen.add(stripped)
+            return
+        if isinstance(value, dict):
+            primary_keys = (
+                "text",
+                "content",
+                "caption",
+                "value",
+                "transcript",
+            )
+            for key in primary_keys:
+                if key in value:
+                    _collect(value[key])
+            for key in (
+                "segments",
+                "results",
+                "items",
+                "data",
+                "payload",
+                "captions",
+                "chunks",
+                "paragraphs",
+            ):
+                if key in value:
+                    _collect(value[key])
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                _collect(item)
+            return
+
+    _collect(data)
+    if parts:
+        return " ".join(parts)
     return None
 
 
