@@ -27,7 +27,10 @@ def get_openai_settings() -> dict[str, str | None]:
     return {
         "api_key": os.getenv("OPENAI_API_KEY"),
         "assistant_id": os.getenv("OPENAI_ASSISTANT_ID", "asst_N0YcJg0jXoqHJQeesdWtiiIc"),
-        "assistant_fromvideo_id": os.getenv("OPENAI_ASSISTANT_FROMVIDEO_ID"),
+        "assistant_fromvideo_id": os.getenv(
+            "OPENAI_ASSISTANT_FROMVIDEO_ID",
+            "asst_Vwus3Hrvn5jXMitwjqoYyRpe",
+        ),
     }
 
 
