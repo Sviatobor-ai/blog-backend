@@ -31,7 +31,15 @@ from .schemas import (
     ArticlePublishResponse,
     ArticleSummary,
 )
-from .services import ArticleGenerationError, OpenAIAssistantArticleGenerator, ensure_unique_slug, slugify_pl
+from .services import (
+    ArticleGenerationError,
+    OpenAIAssistantArticleGenerator,
+)
+from .services.article_publication import (
+    persist_article_document,
+    prepare_document_for_publication,
+)
+from .services.article_utils import compose_body_mdx, extract_sections_from_body
 from .dependencies import shutdown_supadata_client
 
 
@@ -110,36 +118,6 @@ def get_generator() -> OpenAIAssistantArticleGenerator:
         api_key=settings.get("api_key"),
         assistant_id=settings.get("assistant_id"),
     )
-
-
-def compose_body_mdx(sections: List[dict]) -> str:
-    parts: List[str] = []
-    for section in sections:
-        title = section.get("title", "").strip()
-        body = section.get("body", "").strip()
-        if not title or not body:
-            continue
-        parts.append(f"## {title}\n\n{body}")
-    return "\n\n".join(parts)
-
-
-SECTION_PATTERN = re.compile(r"^## +(.+)$", re.MULTILINE)
-
-
-def extract_sections_from_body(body: str) -> List[dict]:
-    if not body:
-        return []
-    sections: List[dict] = []
-    matches = list(SECTION_PATTERN.finditer(body))
-    if not matches:
-        return []
-    for index, match in enumerate(matches):
-        title = match.group(1).strip()
-        start = match.end()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
-        content = body[start:end].strip()
-        sections.append({"title": title, "body": content})
-    return sections
 
 
 FALLBACK_FILLER = (
@@ -429,44 +407,17 @@ def create_article(
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=502, detail=f"Invalid article payload: {exc}") from exc
 
-    desired_slug_source = document.slug or document.seo.slug or document.seo.title or payload.topic
-    desired_slug = slugify_pl(desired_slug_source)
-    if not desired_slug:
-        desired_slug = slugify_pl(payload.topic)
-    existing_slugs = [slug for (slug,) in db.query(Post.slug).all()]
-    final_slug = ensure_unique_slug(existing_slugs, desired_slug)
-    canonical = f"https://joga.yoga/artykuly/{final_slug}"
-    document_data = document.model_dump(mode="json")
-    document_data["slug"] = final_slug
-    document_data.setdefault("taxonomy", {})["section"] = rubric_name
-    document_data.setdefault("seo", {})["slug"] = final_slug
-    document_data["seo"]["canonical"] = canonical
-    document = ArticleDocument.model_validate(document_data)
-
-    body_mdx = compose_body_mdx([section.model_dump() for section in document.article.sections])
-    if not body_mdx:
-        raise HTTPException(status_code=502, detail="Assistant returned empty article sections")
-    post = Post(
-        slug=document.slug,
-        locale=document.locale,
-        section=document.taxonomy.section,
-        categories=document.taxonomy.categories,
-        tags=document.taxonomy.tags,
-        title=document.seo.title,
-        description=document.seo.description,
-        canonical=str(document.seo.canonical),
-        robots=document.seo.robots,
-        headline=document.article.headline,
-        lead=document.article.lead,
-        body_mdx=body_mdx,
-        geo_focus=document.aeo.geo_focus,
-        faq=[faq.model_dump() for faq in document.aeo.faq],
-        citations=[str(url) for url in document.article.citations],
-        payload=document.model_dump(mode="json"),
+    document = prepare_document_for_publication(
+        db,
+        document,
+        fallback_topic=payload.topic,
+        rubric_name=rubric_name,
     )
-    db.add(post)
-    db.commit()
-    db.refresh(post)
+
+    try:
+        post = persist_article_document(db, document)
+    except ArticleGenerationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return ArticlePublishResponse(slug=post.slug, id=post.id, post=document)
 
