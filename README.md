@@ -71,3 +71,5 @@ uvicorn app.main:app --reload --port 8000
 
 # Отключить конвертацию путей MSYS (важно для /aws/...)
 export MSYS2_ARG_CONV_EXCL="*"
+
+http://localhost:3000/admin/app?t=9a8b7c6d-5e4f-3a2b-1c0d-efab12345678
