@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, Form, Query, status
@@ -11,6 +12,13 @@ from ..auth import get_user_by_token, require_token
 from ..models import User
 
 admin_page_router = APIRouter(tags=["admin"])
+
+# Базовый URL фронта: сначала берём FRONTEND_BASE_URL, иначе NEXT_PUBLIC_SITE_URL, иначе локальный дефолт
+FRONTEND_BASE_URL = (
+    os.getenv("FRONTEND_BASE_URL")
+    or os.getenv("NEXT_PUBLIC_SITE_URL")
+    or "http://localhost:3000"
+).rstrip("/")
 
 
 @admin_page_router.get("/admin", response_class=HTMLResponse, include_in_schema=False)
@@ -105,6 +113,7 @@ def admin_login(token: str = Form(...)) -> RedirectResponse:
             url="/admin?error=invalid",
             status_code=status.HTTP_303_SEE_OTHER,
         )
+    # Оставляем редирект на бэковый дашборд (чтобы показать кнопку).
     redirect_url = f"/admin/dashboard?t={quote_plus(normalized_token)}"
     return RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
 
@@ -114,55 +123,86 @@ def admin_login(token: str = Form(...)) -> RedirectResponse:
     response_class=HTMLResponse,
     include_in_schema=False,
 )
-def admin_dashboard(user: User = Depends(require_token)) -> HTMLResponse:
-    """Render the admin dashboard placeholder page."""
+def admin_dashboard(
+    user: User = Depends(require_token),
+    t: str | None = Query(default=None),
+) -> HTMLResponse:
+    """Render the admin dashboard placeholder page with a button to open the frontend console."""
 
-    html = """
+    # Ссылка на фронтовую консоль, если токен есть — пробрасываем его
+    target = f"{FRONTEND_BASE_URL}/admin/app"
+    if t:
+        target = f"{target}?t={quote_plus(t)}"
+
+    html = f"""
     <!DOCTYPE html>
     <html lang=\"en\">
       <head>
         <meta charset=\"utf-8\">
         <title>Admin Dashboard</title>
         <style>
-          body {
+          body {{
             font-family: Arial, sans-serif;
             background: #f3f5f7;
             color: #1a1a1a;
             margin: 0;
             padding: 0;
-          }
-          .wrapper {
+          }}
+          .wrapper {{
             max-width: 720px;
             margin: 4rem auto;
             background: white;
             padding: 2.5rem;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-          }
-          h1 {
+            text-align: center;
+          }}
+          h2 {{
             margin-top: 0;
             color: #2c585b;
-          }
-          p {
+          }}
+          p {{
             line-height: 1.6;
-          }
-          a.logout {
-            display: inline-block;
+          }}
+          .actions {{
             margin-top: 2rem;
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+          }}
+          a.btn {{
+            display: inline-block;
+            padding: 0.75rem 1.25rem;
+            background: #3d6c6f;
+            color: #fff;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+          }}
+          a.btn:hover {{
+            background: #335759;
+          }}
+          a.logout {{
+            display: inline-block;
             color: #2c585b;
             text-decoration: none;
             font-weight: 600;
-          }
-          a.logout:hover {
+          }}
+          a.logout:hover {{
             text-decoration: underline;
-          }
+          }}
         </style>
       </head>
       <body>
         <div class=\"wrapper\">
           <h2>Welcome to the Auto-Generator Console</h2>
           <p>Token verified. You can proceed with admin operations.</p>
-          <a class=\"logout\" href=\"/admin\">Logout</a>
+          <div class=\"actions\">
+            <a class=\"btn\" href=\"{target}\">Open Console</a>
+          </div>
+          <div class=\"actions\">
+            <a class=\"logout\" href=\"/admin\">Logout</a>
+          </div>
         </div>
       </body>
     </html>
