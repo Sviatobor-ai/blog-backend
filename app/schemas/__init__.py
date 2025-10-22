@@ -127,6 +127,8 @@ class ArticleSummary(BaseModel):
 
     slug: str
     title: str
+    headline: str | None = None
+    lead: str | None = None
     section: str | None
     tags: List[str] = Field(default_factory=list)
     created_at: datetime
