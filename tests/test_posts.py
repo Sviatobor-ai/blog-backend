@@ -249,7 +249,12 @@ def test_list_articles_returns_summaries():
     assert data["meta"]["page"] == 1
     assert data["meta"]["per_page"] == 10
     assert len(data["items"]) == 2
-    assert {item["slug"] for item in data["items"]} == {first.slug, second.slug}
+    summaries = {item["slug"]: item for item in data["items"]}
+    assert set(summaries) == {first.slug, second.slug}
+    assert summaries[first.slug]["lead"] == first.lead
+    assert summaries[first.slug]["headline"] == first.headline
+    assert summaries[second.slug]["lead"] == second.lead
+    assert summaries[second.slug]["headline"] == second.headline
 
 
 def test_list_articles_supports_search_by_tags():

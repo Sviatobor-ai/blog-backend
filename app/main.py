@@ -348,6 +348,8 @@ def list_articles(
         ArticleSummary(
             slug=post.slug,
             title=post.title,
+            headline=post.headline,
+            lead=post.lead,
             section=post.section,
             tags=post.tags or [],
             created_at=post.created_at,
