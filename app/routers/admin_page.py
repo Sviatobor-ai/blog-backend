@@ -13,9 +13,8 @@ from ..models import User
 
 admin_page_router = APIRouter(tags=["admin"])
 
-# Базовый URL фронта: сначала берём FRONTEND_BASE_URL, иначе NEXT_PUBLIC_SITE_URL, иначе локальный дефолт
 FRONTEND_BASE_URL = (
-    os.getenv("FRONTEND_BASE_URL")
+    os.getenv("https://wiedza.joga.yoga")
     or os.getenv("NEXT_PUBLIC_SITE_URL")
     or "http://localhost:3000"
 ).rstrip("/")
