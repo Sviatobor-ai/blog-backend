@@ -307,10 +307,10 @@ def get_article_schema() -> dict:
 
 # NOTE: Keep query parameters aligned with frontend expectations.
 @app.get(
-    "/articles",
+    "/artykuly",
     response_model=ArticleListResponse,
     include_in_schema=True,
-    tags=["Articles"],
+    tags=["Artykuly"],
 )
 def list_articles(
     page: int = Query(1, ge=1),
@@ -369,10 +369,10 @@ def list_articles(
 
 
 @app.get(
-    "/articles/{slug}",
+    "/artykuly/{slug}",
     response_model=ArticleDocument,
     include_in_schema=True,
-    tags=["Articles"],
+    tags=["Artykuly"],
 )
 def get_article(slug: str, db: Session = Depends(get_db)):
     post = db.query(Post).filter(Post.slug == slug).one_or_none()
@@ -382,7 +382,7 @@ def get_article(slug: str, db: Session = Depends(get_db)):
     return document
 
 
-@app.post("/articles", response_model=ArticlePublishResponse, status_code=201)
+@app.post("/artykuly", response_model=ArticlePublishResponse, status_code=201)
 def create_article(
     payload: ArticleCreateRequest,
     db: Session = Depends(get_db),
@@ -434,7 +434,7 @@ def list_rubrics(db: Session = Depends(get_db)):
     ]
 
 
-@app.get("/posts", include_in_schema=False)
+@app.get("/artykuly", include_in_schema=False)
 def list_posts_legacy(
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=1, le=50),
@@ -446,7 +446,7 @@ def list_posts_legacy(
     return response.model_dump()
 
 
-@app.get("/posts/{slug}", include_in_schema=False)
+@app.get("/artykuly/{slug}", include_in_schema=False)
 def get_post_legacy(slug: str, db: Session = Depends(get_db)):
     detail = get_article(slug, db)
     return detail.model_dump()

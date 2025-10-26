@@ -203,7 +203,7 @@ def test_create_article_publishes_and_returns_document():
     app.dependency_overrides[get_generator] = lambda: FakeGenerator()
 
     response = client.post(
-        "/articles",
+        "/artykuly",
         json={
             "topic": "Regeneracja z jogą nidrą",
             "rubric_code": None,
@@ -241,7 +241,7 @@ def test_list_articles_returns_summaries():
     )
     second = _create_post(document=second_document)
 
-    response = client.get("/articles")
+    response = client.get("/artykuly")
     assert response.status_code == 200
     data = response.json()
     assert data["meta"]["total_items"] == 2
@@ -270,7 +270,7 @@ def test_list_articles_supports_search_by_tags():
         slug="mindfulness-na-wyjazdach",
     )
 
-    response = client.get("/articles", params={"q": "regener"})
+    response = client.get("/artykuly", params={"q": "regener"})
     assert response.status_code == 200
     data = response.json()
     assert data["meta"]["total_items"] == 1
@@ -287,7 +287,7 @@ def test_list_articles_paginates_and_counts_filtered_results():
         )
 
     response = client.get(
-        "/articles",
+        "/artykuly",
         params={"per_page": 2, "page": 2, "section": "Wellness"},
     )
     assert response.status_code == 200
@@ -302,7 +302,7 @@ def test_get_article_returns_document_payload():
     _reset_database()
     created = _create_post()
 
-    response = client.get(f"/articles/{created.slug}")
+    response = client.get(f"/artykuly/{created.slug}")
     assert response.status_code == 200
     document = response.json()
     assert document["slug"] == created.slug
@@ -319,7 +319,7 @@ def test_get_article_falls_back_when_payload_invalid():
         session.add(stored)
         session.commit()
 
-    response = client.get(f"/articles/{created.slug}")
+    response = client.get(f"/artykuly/{created.slug}")
     assert response.status_code == 200
     document = response.json()
     assert document["slug"] == created.slug
@@ -329,8 +329,8 @@ def test_get_article_falls_back_when_payload_invalid():
 def test_openapi_includes_article_routes():
     schema = client.get("/openapi.json").json()
 
-    assert "/articles" in schema["paths"]
-    assert "/articles/{slug}" in schema["paths"]
+    assert "/artykuly" in schema["paths"]
+    assert "/artykuly/{slug}" in schema["paths"]
 
 
 def test_schema_endpoint_returns_expected_shape():
@@ -349,7 +349,7 @@ def test_create_article_returns_502_when_generator_returns_invalid_payload():
     app.dependency_overrides[get_generator] = lambda: InvalidGenerator()
 
     response = client.post(
-        "/articles",
+        "/artykuly",
         json={
             "topic": "Niepoprawny artykuł",
             "rubric_code": None,

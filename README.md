@@ -66,6 +66,11 @@ docker push $IMAGE_URI
 SERVICE_ARN="arn:aws:apprunner:eu-central-1:685716749010:service/autoblogger-backend/08a8286c5d1c4b71b3c970b046d45cc2"
 aws apprunner start-deployment --service-arn "$SERVICE_ARN"
 
+aws apprunner update-service \
+  --service-arn "$SERVICE_ARN" \
+  --auto-deployments-enabled
+
+
 uvicorn app.main:app --reload --port 8000
 # Then open http://localhost:8000/health
 
