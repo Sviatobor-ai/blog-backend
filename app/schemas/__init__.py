@@ -12,7 +12,7 @@ class ArticleSection(BaseModel):
     """Represents a single markdown section of the article body."""
 
     title: str = Field(..., min_length=3)
-    body: str = Field(..., min_length=400)
+    body: str = Field(..., min_length=700)
 
 
 class ArticleFAQ(BaseModel):

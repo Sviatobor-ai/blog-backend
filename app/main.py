@@ -164,13 +164,13 @@ def _ensure_sections(sections: List[dict]) -> List[dict]:
     sanitized: List[dict] = []
     for index, section in enumerate(sections, start=1):
         title = _normalize_text(str(section.get("title", ""))) or f"Sekcja {index}"
-        body = _ensure_text_length(section.get("body", ""), minimum=400)
+        body = _ensure_text_length(section.get("body", ""), minimum=700)
         sanitized.append({"title": title, "body": body})
     while len(sanitized) < 4:
         sanitized.append(
             {
                 "title": f"Sekcja {len(sanitized) + 1}",
-                "body": _ensure_text_length("", minimum=400),
+                "body": _ensure_text_length("", minimum=700),
             }
         )
     return sanitized

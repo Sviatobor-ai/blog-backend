@@ -61,7 +61,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                 "description": {
                     "type": "string",
                     "minLength": 140,
-                    "maxLength": 160,
+                    "maxLength": 170,
                     "description": "Meta description zoptymalizowany pod SEO.",
                 },
                 "slug": {
@@ -104,7 +104,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                             "title": {"type": "string"},
                             "body": {
                                 "type": "string",
-                                "minLength": 400,
+                                "minLength": 700,
                                 "description": "Sekcja artykułu z akapitami i wypunktowaniem, jeśli potrzebne.",
                             },
                         },
