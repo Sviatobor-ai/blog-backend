@@ -55,6 +55,14 @@ def get_openai_settings() -> OpenAISettings:
 
 
 @lru_cache
+def get_site_base_url() -> str:
+    """Return the public base URL for the published site."""
+
+    base_url = os.getenv("NEXT_PUBLIC_SITE_URL") or "https://joga.yoga"
+    return base_url.rstrip("/")
+
+
+@lru_cache
 def get_supadata_key() -> str:
     """Return the configured SupaData API key or fail fast when missing."""
 

@@ -50,7 +50,6 @@ def generate_article_from_raw(
         document,
         fallback_topic=fallback_topic,
         rubric_name=rubric_name,
-        canonical_override=source_url,
     )
     post = persist_article_document(db, document)
     return post

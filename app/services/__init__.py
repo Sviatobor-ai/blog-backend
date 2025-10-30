@@ -9,8 +9,16 @@ from typing import Any, Iterable
 
 from jsonschema import Draft7Validator
 
-from ..article_schema import ARTICLE_DOCUMENT_SCHEMA
-from ..config import get_openai_settings
+from ..article_schema import (
+    ARTICLE_DOCUMENT_SCHEMA,
+    ARTICLE_FAQ_MAX,
+    ARTICLE_FAQ_MIN,
+    ARTICLE_MIN_CITATIONS,
+    ARTICLE_MIN_LEAD,
+    ARTICLE_MIN_SECTIONS,
+    ARTICLE_MIN_TAGS,
+)
+from ..config import get_openai_settings, get_site_base_url
 from ..integrations.openai_client import (
     OpenAIClient,
     OpenAIClientError,
@@ -80,6 +88,47 @@ def _load_payload(text: str) -> dict[str, Any]:
             raise AssistantInvalidJSON(_shorten(f"Assistant returned invalid JSON: {exc}")) from exc
 
 
+@lru_cache
+def _article_canonical_base() -> str:
+    base = get_site_base_url().rstrip("/")
+    return f"{base}/artykuly"
+
+
+def get_article_canonical_base() -> str:
+    """Return the canonical base URL for generated articles."""
+
+    return _article_canonical_base()
+
+
+def build_canonical_for_slug(slug: str) -> str:
+    """Return canonical URL for the provided slug within the joga.yoga domain."""
+
+    slug_part = str(slug or "").strip().strip("/")
+    base = _article_canonical_base()
+    if not slug_part:
+        return base
+    return f"{base}/{slug_part}"
+
+
+def _build_run_instructions(*, source_url: str | None = None) -> str:
+    canonical_base = get_article_canonical_base()
+    parts = [
+        "Generate in Polish (pl-PL), return only JSON strictly matching ARTICLE_DOCUMENT_SCHEMA.",
+        f"Ensure article.article.lead has at least {ARTICLE_MIN_LEAD} characters.",
+        f"Create at least {ARTICLE_MIN_SECTIONS} sections in article.article.sections.",
+        f"Provide at least {ARTICLE_MIN_CITATIONS} citation URLs in article.article.citations.",
+        f"Include between {ARTICLE_FAQ_MIN} and {ARTICLE_FAQ_MAX} FAQ entries in aeo.faq.",
+        f"Ensure taxonomy.tags contains at least {ARTICLE_MIN_TAGS} items.",
+        f"Set seo.canonical to the final article URL on our domain starting with {canonical_base}.",
+        "Fill SEO, taxonomy and AEO fields zgodnie z wytycznymi joga.yoga.",
+    ]
+    if source_url:
+        parts.append(
+            f"Include the provided source URL ({source_url}) as one of the article.article.citations entries."
+        )
+    return " ".join(parts)
+
+
 class _BaseAssistantGenerator:
     """Common helpers for OpenAI based article generators."""
 
@@ -95,8 +144,12 @@ class _BaseAssistantGenerator:
         self._assistant_id = assistant_id or settings.assistant_id
         self._request_timeout_s = request_timeout_s if request_timeout_s is not None else settings.request_timeout_s
         self._client: OpenAIClient | None = None
-        if not self._assistant_id:
-            raise ArticleGenerationError("OpenAI assistant id is not configured")
+
+    @property
+    def is_configured(self) -> bool:
+        """Return True when both API key and assistant id are available."""
+
+        return bool(self._api_key) and bool(self._assistant_id)
 
     def _ensure_client(self) -> OpenAIClient:
         if self._client is None:
@@ -115,6 +168,8 @@ class _BaseAssistantGenerator:
         run_instructions: str,
         timeout_s: float | None = None,
     ) -> dict[str, Any]:
+        if not self._assistant_id:
+            raise ArticleGenerationError("OpenAI assistant id is not configured")
         client = self._ensure_client()
         try:
             thread_id = client.create_thread()
@@ -163,10 +218,7 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
             keyword_text=keyword_text,
             guidance=guidance,
         )
-        instructions = (
-            "Generate the article in Polish (pl-PL). Return only JSON strictly matching "
-            "ARTICLE_DOCUMENT_SCHEMA."
-        )
+        instructions = _build_run_instructions()
         return self._execute(user_message=prompt, run_instructions=instructions)
 
     def _compose_prompt(
@@ -183,7 +235,11 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
             "Jesteś redaktorem prowadzącym polskojęzycznego bloga joga.yoga. "
             "Tworzysz długie artykuły z rubryki wellness, zoptymalizowane pod SEO, GEO i AEO. "
             f"Rubryka artykułu: {rubric}. Temat przewodni: {topic}.{keyword_line} "
-            "Przygotuj kompletną strukturę artykułu z sekcjami oraz FAQ na końcu (2-3 pytania). "
+            f"Przygotuj kompletną strukturę artykułu z co najmniej {ARTICLE_MIN_SECTIONS} sekcjami oraz FAQ na końcu "
+            f"({ARTICLE_FAQ_MIN}-{ARTICLE_FAQ_MAX} pytania). "
+            f"Lead musi mieć co najmniej {ARTICLE_MIN_LEAD} znaków. "
+            f"Dodaj przynajmniej {ARTICLE_MIN_CITATIONS} wiarygodne źródła w article.article.citations oraz minimum "
+            f"{ARTICLE_MIN_TAGS} tagi w taxonomy.tags. "
             "Artykuł musi być napisany w języku polskim, styl: empatyczny, ekspercki, zorientowany na praktykę. "
             "Zwracaj odpowiedź wyłącznie jako JSON zgodny ze schematem. Nie dodawaj komentarzy ani markdown."
             f"\nSchemat JSON: {self._schema_text}{optional_guidance}"
@@ -210,18 +266,24 @@ class OpenAIAssistantFromTranscriptGenerator(_BaseAssistantGenerator):
 
     def generate_from_transcript(self, *, raw_text: str, source_url: str) -> dict[str, Any]:
         transcript = raw_text.strip()
+        canonical_base = get_article_canonical_base()
         user_message = (
             "Poniżej znajduje się transkrypcja (oryginał może być w innym języku). "
             "Napisz artykuł po polsku zgodnie z wymaganym schematem. "
-            f"Ustaw SEO.canonical na: {source_url}."
+            f"Lead musi mieć co najmniej {ARTICLE_MIN_LEAD} znaków, a sekcji powinno być przynajmniej {ARTICLE_MIN_SECTIONS}. "
+            f"FAQ powinno liczyć od {ARTICLE_FAQ_MIN} do {ARTICLE_FAQ_MAX} pytań i odpowiedzi. "
+            f"Dodaj przynajmniej {ARTICLE_MIN_CITATIONS} wiarygodne cytowania, uwzględniając {source_url}. "
+            f"Zadbaj o minimum {ARTICLE_MIN_TAGS} tagi taksonomiczne. "
+            f"Ustaw pole seo.canonical na adres w naszej domenie rozpoczynający się od {canonical_base} i zgodny ze slugiem artykułu. "
+            "Jeśli transkrypcja jest w innym języku, przetłumacz treść na polski. "
             f"\n\nSchemat JSON: {self._schema_text}"
             "\n\nTRANSKRYPCJA:\n"
             f"{transcript}"
         )
+        base_instructions = _build_run_instructions(source_url=source_url)
         instructions = (
-            "Generate in Polish (pl-PL), return only JSON strictly matching ARTICLE_DOCUMENT_SCHEMA. "
-            f"If needed translate the transcript to Polish. Fill SEO, taxonomy and AEO fields zgodnie z wytycznymi joga.yoga. "
-            f"Set seo.canonical to {source_url}."
+            "If needed translate the transcript to Polish. "
+            f"{base_instructions}"
         )
         # TODO: consider using the Responses API with structured outputs once available.
         return self._execute(user_message=user_message, run_instructions=instructions)
