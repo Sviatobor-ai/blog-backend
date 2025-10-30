@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from functools import lru_cache
 from typing import Any, Iterable
@@ -19,10 +20,10 @@ from ..article_schema import (
     ARTICLE_MIN_TAGS,
 )
 from ..config import get_openai_settings, get_site_base_url
-from ..integrations.openai_client import (
-    OpenAIClient,
-    OpenAIClientError,
-)
+from ..integrations.openai_client import OpenAIClient, OpenAIClientError
+
+
+logger = logging.getLogger(__name__)
 
 
 class ArticleGenerationError(RuntimeError):
@@ -110,23 +111,59 @@ def build_canonical_for_slug(slug: str) -> str:
     return f"{base}/{slug_part}"
 
 
-def _build_run_instructions(*, source_url: str | None = None) -> str:
+def _build_system_instructions(*, source_url: str | None = None) -> str:
     canonical_base = get_article_canonical_base()
     parts = [
-        "Generate in Polish (pl-PL), return only JSON strictly matching ARTICLE_DOCUMENT_SCHEMA.",
-        f"Ensure article.article.lead has at least {ARTICLE_MIN_LEAD} characters.",
-        f"Create at least {ARTICLE_MIN_SECTIONS} sections in article.article.sections.",
-        f"Provide at least {ARTICLE_MIN_CITATIONS} citation URLs in article.article.citations.",
-        f"Include between {ARTICLE_FAQ_MIN} and {ARTICLE_FAQ_MAX} FAQ entries in aeo.faq.",
-        f"Ensure taxonomy.tags contains at least {ARTICLE_MIN_TAGS} items.",
-        f"Set seo.canonical to the final article URL on our domain starting with {canonical_base}.",
-        "Fill SEO, taxonomy and AEO fields zgodnie z wytycznymi joga.yoga.",
+        "You are the content architect for joga.yoga and respond using fluent Polish (pl-PL).",
+        "Always return a single JSON object with keys: topic, slug, locale, taxonomy, seo, article, aeo.",
+        "Provide a generous lead composed of multiple paragraphs that draws readers into the story.",
+        "Create no fewer than four substantial sections whose bodies read like self-contained guides with practical insights.",
+        "Enrich the piece with credible citation URLs in article.article.citations (minimum two, ideally three or more).",
+        "Populate taxonomy.tags with focused terms relevant to wellness and joga.yoga (at least two tags).",
+        "Fill seo.* fields with production-ready metadata and set seo.canonical to a URL beginning with "
+        f"{canonical_base}.",
+        "Ensure aeo.geo_focus lists meaningful localisations and craft 2-4 FAQ entries that expand on unresolved reader questions.",
+        "Return JSON only—no comments, markdown or additional explanations.",
     ]
     if source_url:
         parts.append(
-            f"Include the provided source URL ({source_url}) as one of the article.article.citations entries."
+            f"Include the supplied source URL ({source_url}) as one of the citations when it is relevant."
         )
     return " ".join(parts)
+
+
+def _compose_generation_brief(
+    *,
+    rubric: str | None,
+    topic: str | None,
+    keywords: Iterable[str] | None,
+    guidance: str | None,
+    transcript: str | None = None,
+) -> str:
+    keyword_text = ", ".join(keyword.strip() for keyword in (keywords or []) if keyword and keyword.strip())
+    lines: list[str] = [
+        "Tworzysz długą, empatyczną i ekspercką publikację dla bloga joga.yoga.",
+        "Budujesz narrację z wyraźnymi akapitami, przykładami oraz wskazówkami do wdrożenia w codzienności.",
+        "Dbasz o logiczne przejścia między sekcjami i konsekwentny ton głosu marki.",
+    ]
+    if rubric:
+        lines.append(f"Rubryka redakcyjna: {rubric}.")
+    if topic:
+        lines.append(f"Temat przewodni artykułu: {topic}.")
+    if keyword_text:
+        lines.append(f"Wpleć naturalnie słowa kluczowe SEO: {keyword_text}.")
+    if guidance:
+        lines.append(f"Dodatkowe wytyczne redakcyjne: {guidance}.")
+    lines.append(
+        "Opracuj sugestywny nagłówek, rozbudowany lead i sekcje, które odpowiadają na potrzeby odbiorców joga.yoga."
+    )
+    if transcript:
+        lines.append(
+            "Bazuj na poniższej transkrypcji (przetłumacz ją na polski, jeśli jest w innym języku) i rozwiń ją w pełnoprawny artykuł."
+        )
+        lines.append("TRANSKRYPCJA:")
+        lines.append(transcript)
+    return "\n".join(lines)
 
 
 class _BaseAssistantGenerator:
@@ -182,8 +219,28 @@ class _BaseAssistantGenerator:
             )
         except OpenAIClientError as exc:
             raise OpenAIIntegrationError(exc.message, code=exc.code, status=exc.status) from exc
-        payload = _load_payload(response_text)
-        return validate_article_payload(payload)
+        try:
+            payload = _load_payload(response_text)
+        except AssistantInvalidJSON as exc:
+            logger.warning(
+                "assistant-draft rejected reason=%s preview=%s",
+                exc,
+                _shorten(response_text, limit=800),
+            )
+            raise
+        try:
+            return validate_article_payload(payload)
+        except AssistantInvalidJSON as exc:
+            try:
+                serialized = json.dumps(payload, ensure_ascii=False)
+            except TypeError:
+                serialized = str(payload)
+            logger.warning(
+                "assistant-draft schema-fail reason=%s payload=%s",
+                exc,
+                _shorten(serialized, limit=800),
+            )
+            raise
 
 
 class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
@@ -201,7 +258,6 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
             assistant_id=assistant_id,
             request_timeout_s=request_timeout_s,
         )
-        self._schema_text = json.dumps(ARTICLE_DOCUMENT_SCHEMA, ensure_ascii=False, indent=2)
 
     def generate_article(
         self,
@@ -211,14 +267,13 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
         keywords: Iterable[str] | None = None,
         guidance: str | None = None,
     ) -> dict[str, Any]:
-        keyword_text = ", ".join(keywords or [])
         prompt = self._compose_prompt(
             topic=topic,
             rubric=rubric,
-            keyword_text=keyword_text,
+            keywords=keywords,
             guidance=guidance,
         )
-        instructions = _build_run_instructions()
+        instructions = _build_system_instructions()
         return self._execute(user_message=prompt, run_instructions=instructions)
 
     def _compose_prompt(
@@ -226,23 +281,14 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
         *,
         topic: str,
         rubric: str,
-        keyword_text: str,
+        keywords: Iterable[str] | None,
         guidance: str | None,
     ) -> str:
-        optional_guidance = f"\nDodatkowe wskazówki: {guidance}." if guidance else ""
-        keyword_line = f" Słowa kluczowe SEO: {keyword_text}." if keyword_text else ""
-        return (
-            "Jesteś redaktorem prowadzącym polskojęzycznego bloga joga.yoga. "
-            "Tworzysz długie artykuły z rubryki wellness, zoptymalizowane pod SEO, GEO i AEO. "
-            f"Rubryka artykułu: {rubric}. Temat przewodni: {topic}.{keyword_line} "
-            f"Przygotuj kompletną strukturę artykułu z co najmniej {ARTICLE_MIN_SECTIONS} sekcjami oraz FAQ na końcu "
-            f"({ARTICLE_FAQ_MIN}-{ARTICLE_FAQ_MAX} pytania). "
-            f"Lead musi mieć co najmniej {ARTICLE_MIN_LEAD} znaków. "
-            f"Dodaj przynajmniej {ARTICLE_MIN_CITATIONS} wiarygodne źródła w article.article.citations oraz minimum "
-            f"{ARTICLE_MIN_TAGS} tagi w taxonomy.tags. "
-            "Artykuł musi być napisany w języku polskim, styl: empatyczny, ekspercki, zorientowany na praktykę. "
-            "Zwracaj odpowiedź wyłącznie jako JSON zgodny ze schematem. Nie dodawaj komentarzy ani markdown."
-            f"\nSchemat JSON: {self._schema_text}{optional_guidance}"
+        return _compose_generation_brief(
+            rubric=rubric,
+            topic=topic,
+            keywords=keywords,
+            guidance=guidance,
         )
 
 
@@ -262,29 +308,17 @@ class OpenAIAssistantFromTranscriptGenerator(_BaseAssistantGenerator):
             assistant_id=assistant_id or settings.assistant_fromvideo_id,
             request_timeout_s=request_timeout_s,
         )
-        self._schema_text = json.dumps(ARTICLE_DOCUMENT_SCHEMA, ensure_ascii=False)
 
     def generate_from_transcript(self, *, raw_text: str, source_url: str) -> dict[str, Any]:
         transcript = raw_text.strip()
-        canonical_base = get_article_canonical_base()
-        user_message = (
-            "Poniżej znajduje się transkrypcja (oryginał może być w innym języku). "
-            "Napisz artykuł po polsku zgodnie z wymaganym schematem. "
-            f"Lead musi mieć co najmniej {ARTICLE_MIN_LEAD} znaków, a sekcji powinno być przynajmniej {ARTICLE_MIN_SECTIONS}. "
-            f"FAQ powinno liczyć od {ARTICLE_FAQ_MIN} do {ARTICLE_FAQ_MAX} pytań i odpowiedzi. "
-            f"Dodaj przynajmniej {ARTICLE_MIN_CITATIONS} wiarygodne cytowania, uwzględniając {source_url}. "
-            f"Zadbaj o minimum {ARTICLE_MIN_TAGS} tagi taksonomiczne. "
-            f"Ustaw pole seo.canonical na adres w naszej domenie rozpoczynający się od {canonical_base} i zgodny ze slugiem artykułu. "
-            "Jeśli transkrypcja jest w innym języku, przetłumacz treść na polski. "
-            f"\n\nSchemat JSON: {self._schema_text}"
-            "\n\nTRANSKRYPCJA:\n"
-            f"{transcript}"
+        user_message = _compose_generation_brief(
+            rubric=None,
+            topic=None,
+            keywords=None,
+            guidance=None,
+            transcript=transcript,
         )
-        base_instructions = _build_run_instructions(source_url=source_url)
-        instructions = (
-            "If needed translate the transcript to Polish. "
-            f"{base_instructions}"
-        )
+        instructions = _build_system_instructions(source_url=source_url)
         # TODO: consider using the Responses API with structured outputs once available.
         return self._execute(user_message=user_message, run_instructions=instructions)
 

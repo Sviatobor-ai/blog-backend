@@ -7,12 +7,21 @@ from typing import Iterable, List, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
+from ..article_schema import (
+    ARTICLE_FAQ_MAX,
+    ARTICLE_FAQ_MIN,
+    ARTICLE_MIN_CITATIONS,
+    ARTICLE_MIN_LEAD,
+    ARTICLE_MIN_SECTIONS,
+    ARTICLE_MIN_TAGS,
+)
+
 
 class ArticleSection(BaseModel):
     """Represents a single markdown section of the article body."""
 
     title: str = Field(..., min_length=3)
-    body: str = Field(..., min_length=700)
+    body: str = Field(..., min_length=400)
 
 
 class ArticleFAQ(BaseModel):
@@ -26,16 +35,16 @@ class ArticleContent(BaseModel):
     """Article narrative with structured sections."""
 
     headline: str
-    lead: str = Field(..., min_length=250)
-    sections: List[ArticleSection] = Field(..., min_length=4)
-    citations: List[HttpUrl] = Field(..., min_length=2)
+    lead: str = Field(..., min_length=ARTICLE_MIN_LEAD)
+    sections: List[ArticleSection] = Field(..., min_length=ARTICLE_MIN_SECTIONS)
+    citations: List[HttpUrl] = Field(..., min_length=ARTICLE_MIN_CITATIONS)
 
 
 class ArticleSEO(BaseModel):
     """SEO metadata used across the platform."""
 
     title: str = Field(..., max_length=70)
-    description: str = Field(..., min_length=140, max_length=160)
+    description: str = Field(..., min_length=120, max_length=160)
     slug: str = Field(..., pattern=r"^[a-z0-9-]{3,200}$")
     canonical: HttpUrl
     robots: Literal["index,follow"] = "index,follow"
@@ -46,14 +55,14 @@ class ArticleTaxonomy(BaseModel):
 
     section: str
     categories: List[str] = Field(..., min_length=1)
-    tags: List[str] = Field(..., min_length=3)
+    tags: List[str] = Field(..., min_length=ARTICLE_MIN_TAGS)
 
 
 class ArticleAEO(BaseModel):
     """Answer Engine Optimisation data: geo focus and FAQ."""
 
     geo_focus: List[str] = Field(..., min_length=1)
-    faq: List[ArticleFAQ] = Field(..., min_length=2, max_length=3)
+    faq: List[ArticleFAQ] = Field(..., min_length=ARTICLE_FAQ_MIN, max_length=ARTICLE_FAQ_MAX)
 
 
 class ArticleDocument(BaseModel):

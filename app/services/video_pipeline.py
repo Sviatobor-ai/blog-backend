@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import logging
+
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -15,6 +18,9 @@ from .article_publication import (
     persist_article_document,
     prepare_document_for_publication,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def generate_article_from_raw(
@@ -34,6 +40,12 @@ def generate_article_from_raw(
     try:
         document = ArticleDocument.model_validate(payload)
     except (ValueError, ValidationError) as exc:  # pragma: no cover - defensive guard
+        try:
+            serialized = json.dumps(payload, ensure_ascii=False)
+        except TypeError:
+            serialized = str(payload)
+        preview = serialized if len(serialized) <= 800 else f"{serialized[:800]}…"
+        logger.warning("assistant-draft invalid transcript reason=%s payload=%s", exc, preview)
         raise ArticleGenerationError(f"Invalid article payload: {exc}") from exc
 
     citations = {str(url) for url in document.article.citations}
