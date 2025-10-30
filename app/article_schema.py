@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-ARTICLE_MIN_LEAD = 250
+ARTICLE_MIN_LEAD = 180
 ARTICLE_MIN_SECTIONS = 4
 ARTICLE_MIN_CITATIONS = 2
 ARTICLE_FAQ_MIN = 2
-ARTICLE_FAQ_MAX = 3
-ARTICLE_MIN_TAGS = 3
+ARTICLE_FAQ_MAX = 4
+ARTICLE_MIN_TAGS = 2
 
 
 ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
@@ -64,11 +64,11 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                 "title": {
                     "type": "string",
                     "maxLength": 70,
-                    "description": "SEO title w języku polskim.",
+                "description": "SEO title w języku polskim.",
                 },
                 "description": {
                     "type": "string",
-                    "minLength": 140,
+                    "minLength": 120,
                     "maxLength": 170,
                     "description": "Meta description zoptymalizowany pod SEO.",
                 },
@@ -99,7 +99,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                 "lead": {
                     "type": "string",
                     "minLength": ARTICLE_MIN_LEAD,
-                    "description": "Lead o długości 60-80 słów.",
+                    "description": "Lead wprowadzający o kilku akapitach.",
                 },
                 "sections": {
                     "type": "array",
@@ -112,7 +112,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                             "title": {"type": "string"},
                             "body": {
                                 "type": "string",
-                                "minLength": 700,
+                                "minLength": 400,
                                 "description": "Sekcja artykułu z akapitami i wypunktowaniem, jeśli potrzebne.",
                             },
                         },

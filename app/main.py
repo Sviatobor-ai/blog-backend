@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import json
 from functools import lru_cache
 from math import ceil
 from typing import Iterable, List
@@ -44,6 +45,7 @@ from .dependencies import shutdown_supadata_client
 
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="wyjazdy-blog backend",
@@ -408,6 +410,12 @@ def create_article(
     try:
         document = ArticleDocument.model_validate(raw_document)
     except (ValueError, ValidationError) as exc:
+        try:
+            serialized = json.dumps(raw_document, ensure_ascii=False)
+        except TypeError:
+            serialized = str(raw_document)
+        preview = serialized if len(serialized) <= 800 else f"{serialized[:800]}…"
+        logger.warning("assistant-draft invalid manual reason=%s payload=%s", exc, preview)
         raise HTTPException(status_code=502, detail=f"Invalid article payload: {exc}") from exc
 
     document = prepare_document_for_publication(
