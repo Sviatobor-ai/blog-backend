@@ -30,6 +30,15 @@ if engine.dialect.name == "sqlite":
     Post.__table__.c.payload.type = JSON()
 
 
+_BODY_PADDING = (
+    " Ten akapit testowy uzupełnia narrację sekcji, rozwija przykłady pracy z oddechem,"
+    " sygnalizuje wpływ praktyki na układ nerwowy i dodaje wskazówki wdrożenia w realnych"
+    " scenariuszach wyjazdowych. Podkreśla znaczenie konsekwencji, mikro-rytuałów oraz"
+    " pielęgnowania dobrostanu po powrocie do domu, aby spełnić wymagania długości treści"
+    " i zachować spójność merytoryczną testowego artykułu."
+)
+
+
 SAMPLE_DOCUMENT = {
     "topic": "Joga nidra dla początkujących",
     "slug": "joga-nidra-dla-poczatkujacych",
@@ -67,7 +76,8 @@ SAMPLE_DOCUMENT = {
                     " doświadczane emocje i ułatwiają odzyskanie równowagi. Dodajemy przykłady z zajęć warsztatowych i relacji"
                     " uczestników, którzy dzięki konsekwencji w praktyce odzyskali spokojny sen oraz poczucie zakorzenienia"
                     " w ciele."
-                ),
+                )
+                + _BODY_PADDING,
             },
             {
                 "title": "Jak przygotować przestrzeń",
@@ -77,7 +87,8 @@ SAMPLE_DOCUMENT = {
                     " ciała z pomocą koców, bolstera i podparć pod kolana, by kręgosłup i barki pozostały zrelaksowane przez całą"
                     " sesję. Wskazujemy, jak zadbać o termikę ciała i komunikację z grupą, aby każdy czuł się komfortowo, oraz"
                     " jak przygotować notatnik do zapisania wrażeń po praktyce, co pogłębia integrację doświadczeń."
-                ),
+                )
+                + _BODY_PADDING,
             },
             {
                 "title": "Przebieg praktyki krok po kroku",
@@ -87,7 +98,8 @@ SAMPLE_DOCUMENT = {
                     " nauczyciela, jak modulować głos oraz tempo, a także jak reagować na pojawiające się emocje. Przypominamy"
                     " o łagodnym przywracaniu ruchu w dłoniach i stopach oraz o czasie na integrację wrażeń, co pozwala utrzymać"
                     " poczucie bezpieczeństwa i zakotwiczenia przez resztę dnia."
-                ),
+                )
+                + _BODY_PADDING,
             },
             {
                 "title": "Integracja po zakończeniu",
@@ -98,7 +110,8 @@ SAMPLE_DOCUMENT = {
                     " lekkości towarzyszyły uczestnikom na co dzień. Pokazujemy także, jak wykorzystać aromaterapię lub krótką"
                     " medytację po zajęciach, aby pogłębić efekt regeneracji i utrzymać dobre nawyki jeszcze długo po powrocie"
                     " do domu."
-                ),
+                )
+                + _BODY_PADDING,
             },
         ],
         "citations": [

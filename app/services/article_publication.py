@@ -9,11 +9,13 @@ from sqlalchemy.orm import Session
 
 from ..models import Post
 from ..schemas import ArticleDocument
-from ..services import ArticleGenerationError, ensure_unique_slug, slugify_pl
+from ..services import (
+    ArticleGenerationError,
+    build_canonical_for_slug,
+    ensure_unique_slug,
+    slugify_pl,
+)
 from .article_utils import compose_body_mdx
-
-
-_CANONICAL_PREFIX = "https://joga.yoga/artykuly"
 
 
 def prepare_document_for_publication(
@@ -39,7 +41,7 @@ def prepare_document_for_publication(
     existing_slugs: Iterable[str] = [slug for (slug,) in db.query(Post.slug).all()]
     final_slug = ensure_unique_slug(existing_slugs, desired_slug)
 
-    canonical = canonical_override or f"{_CANONICAL_PREFIX}/{final_slug}"
+    canonical = canonical_override or build_canonical_for_slug(final_slug)
 
     document_data = document.model_dump(mode="json")
     document_data["slug"] = final_slug

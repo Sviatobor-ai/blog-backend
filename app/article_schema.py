@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+ARTICLE_MIN_LEAD = 250
+ARTICLE_MIN_SECTIONS = 4
+ARTICLE_MIN_CITATIONS = 2
+ARTICLE_FAQ_MIN = 2
+ARTICLE_FAQ_MAX = 3
+ARTICLE_MIN_TAGS = 3
+
+
 ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://joga.yoga/schemas/polish-article.json",
@@ -43,7 +51,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                 },
                 "tags": {
                     "type": "array",
-                    "minItems": 3,
+                    "minItems": ARTICLE_MIN_TAGS,
                     "items": {"type": "string"},
                 },
             },
@@ -90,12 +98,12 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                 },
                 "lead": {
                     "type": "string",
-                    "minLength": 250,
+                    "minLength": ARTICLE_MIN_LEAD,
                     "description": "Lead o długości 60-80 słów.",
                 },
                 "sections": {
                     "type": "array",
-                    "minItems": 4,
+                    "minItems": ARTICLE_MIN_SECTIONS,
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
@@ -112,7 +120,7 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                 },
                 "citations": {
                     "type": "array",
-                    "minItems": 2,
+                    "minItems": ARTICLE_MIN_CITATIONS,
                     "items": {
                         "type": "string",
                         "format": "uri",
@@ -133,8 +141,8 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
                 },
                 "faq": {
                     "type": "array",
-                    "minItems": 2,
-                    "maxItems": 3,
+                    "minItems": ARTICLE_FAQ_MIN,
+                    "maxItems": ARTICLE_FAQ_MAX,
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
@@ -153,4 +161,12 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
     },
 }
 
-__all__ = ["ARTICLE_DOCUMENT_SCHEMA"]
+__all__ = [
+    "ARTICLE_DOCUMENT_SCHEMA",
+    "ARTICLE_MIN_LEAD",
+    "ARTICLE_MIN_SECTIONS",
+    "ARTICLE_MIN_CITATIONS",
+    "ARTICLE_FAQ_MIN",
+    "ARTICLE_FAQ_MAX",
+    "ARTICLE_MIN_TAGS",
+]
