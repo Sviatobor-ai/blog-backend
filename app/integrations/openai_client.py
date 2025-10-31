@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
 from typing import Any, Iterable
 
 try:  # pragma: no cover - optional dependency for tests
@@ -24,16 +23,14 @@ def _shorten(message: str, *, limit: int = 300) -> str:
     return f"{message[: limit - len(suffix)]}{suffix}"
 
 
-@dataclass(slots=True)
 class OpenAIClientError(RuntimeError):
     """Base error raised by :class:`OpenAIClient`."""
 
-    message: str
-    code: str | int | None = None
-    status: str | None = None
-
-    def __post_init__(self) -> None:  # pragma: no cover - dataclass runtime hook
-        super().__init__(self.message)
+    def __init__(self, message: str, *, code: str | int | None = None, status: str | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.status = status
 
 
 class OpenAIRunTimeout(OpenAIClientError):
