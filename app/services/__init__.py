@@ -114,20 +114,20 @@ def build_canonical_for_slug(slug: str) -> str:
 def _build_system_instructions(*, source_url: str | None = None) -> str:
     canonical_base = get_article_canonical_base()
     parts = [
-        "You are the content architect for joga.yoga and respond using fluent Polish (pl-PL).",
-        "Always return a single JSON object with keys: topic, slug, locale, taxonomy, seo, article, aeo.",
-        "Provide a generous lead composed of multiple paragraphs that draws readers into the story.",
-        "Create no fewer than four substantial sections whose bodies read like self-contained guides with practical insights.",
-        "Enrich the piece with credible citation URLs in article.article.citations (minimum two, ideally three or more).",
-        "Populate taxonomy.tags with focused terms relevant to wellness and joga.yoga (at least two tags).",
-        "Fill seo.* fields with production-ready metadata and set seo.canonical to a URL beginning with "
+        "You are the content architect for joga.yoga and respond exclusively in Polish (pl-PL).",
+        "Always return exactly one JSON object containing: topic, slug, locale, taxonomy, seo, article, aeo.",
+        "Craft a captivating lead made of several rich paragraphs that invite the reader in.",
+        "Create at least four long-form sections; each body must exceed 400 characters, flow naturally across 4-6 paragraphs and deliver actionable, expert guidance.",
+        "Add a minimum of two high-quality citation URLs under article.citations and prefer three when available.",
+        "Populate taxonomy.tags with at least two precise joga.yoga-friendly keywords and ensure taxonomy.categories is never empty.",
+        "Produce complete SEO metadata and set seo.canonical to a URL that begins with "
         f"{canonical_base}.",
-        "Ensure aeo.geo_focus lists meaningful localisations and craft 2-4 FAQ entries that expand on unresolved reader questions.",
-        "Return JSON only—no comments, markdown or additional explanations.",
+        "Ensure aeo.geo_focus lists meaningful Polish or European localisations and compose 2-4 FAQ entries that resolve outstanding reader questions with thorough answers.",
+        "Return JSON only — no comments, markdown, or surrounding prose.",
     ]
     if source_url:
         parts.append(
-            f"Include the supplied source URL ({source_url}) as one of the citations when it is relevant."
+            f"Incorporate the supplied source URL ({source_url}) as one of the citations whenever it genuinely supports the piece."
         )
     return " ".join(parts)
 
@@ -145,6 +145,8 @@ def _compose_generation_brief(
         "Tworzysz długą, empatyczną i ekspercką publikację dla bloga joga.yoga.",
         "Budujesz narrację z wyraźnymi akapitami, przykładami oraz wskazówkami do wdrożenia w codzienności.",
         "Dbasz o logiczne przejścia między sekcjami i konsekwentny ton głosu marki.",
+        "Lead musi liczyć co najmniej trzy akapity, a każda sekcja rozwija temat w sposób pogłębiony, a nie skrótowy.",
+        "FAQ zawiera 2-4 pytania i wyczerpujące odpowiedzi wynikające z treści artykułu.",
     ]
     if rubric:
         lines.append(f"Rubryka redakcyjna: {rubric}.")
@@ -159,7 +161,7 @@ def _compose_generation_brief(
     )
     if transcript:
         lines.append(
-            "Bazuj na poniższej transkrypcji (przetłumacz ją na polski, jeśli jest w innym języku) i rozwiń ją w pełnoprawny artykuł."
+            "Bazuj na poniższej transkrypcji (przetłumacz ją na polski, jeśli jest w innym języku), rozwiń ją w pełnoprawny artykuł i unikaj streszczania."
         )
         lines.append("TRANSKRYPCJA:")
         lines.append(transcript)
