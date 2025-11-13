@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Iterable, List, Literal
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, constr, field_validator
 
 from ..article_schema import (
     ARTICLE_FAQ_MAX,
@@ -31,23 +31,46 @@ class ArticleFAQ(BaseModel):
     answer: str = Field(..., min_length=10)
 
 
+SEO_TITLE_PATTERN = r"^[^:\n]{1,60}$"
+ShortTitle = constr(min_length=5, max_length=60, pattern=SEO_TITLE_PATTERN)
+
+
+def _ensure_contains_letter(value: str, field_name: str) -> str:
+    trimmed = value.strip()
+    if len(trimmed) < 5:
+        raise ValueError(f"{field_name} must contain at least five characters")
+    if any(char.isalpha() for char in trimmed):
+        return trimmed
+    raise ValueError(f"{field_name} must contain at least one letter")
+
+
 class ArticleContent(BaseModel):
     """Article narrative with structured sections."""
 
-    headline: str
+    headline: ShortTitle
     lead: str = Field(..., min_length=ARTICLE_MIN_LEAD)
     sections: List[ArticleSection] = Field(..., min_length=ARTICLE_MIN_SECTIONS)
     citations: List[HttpUrl] = Field(..., min_length=ARTICLE_MIN_CITATIONS)
+
+    @field_validator("headline")
+    @classmethod
+    def validate_headline(cls, value: str) -> str:
+        return _ensure_contains_letter(value, field_name="headline")
 
 
 class ArticleSEO(BaseModel):
     """SEO metadata used across the platform."""
 
-    title: str = Field(..., max_length=70)
+    title: ShortTitle
     description: str = Field(..., min_length=120, max_length=160)
     slug: str = Field(..., pattern=r"^[a-z0-9-]{3,200}$")
     canonical: HttpUrl
     robots: Literal["index,follow"] = "index,follow"
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        return _ensure_contains_letter(value, field_name="seo.title")
 
 
 class ArticleTaxonomy(BaseModel):

@@ -123,6 +123,7 @@ def _build_system_instructions(*, source_url: str | None = None) -> str:
         "Populate taxonomy.tags with at least two precise joga.yoga-friendly keywords and ensure taxonomy.categories is never empty.",
         "Produce complete SEO metadata and set seo.canonical to a URL that begins with "
         f"{canonical_base}.",
+        "Keep seo.title and article.headline in Polish under 60 characters, single-line, free of colons, and naturally containing at least one strategic keyword.",
         "Ensure aeo.geo_focus lists meaningful Polish or European localisations and compose 2-4 FAQ entries that resolve outstanding reader questions with thorough answers.",
         "Return JSON only — no comments, markdown, or surrounding prose.",
     ]
@@ -157,6 +158,9 @@ def _compose_generation_brief(
         lines.append(f"Wpleć naturalnie słowa kluczowe SEO: {keyword_text}.")
     if guidance:
         lines.append(f"Dodatkowe wytyczne redakcyjne: {guidance}.")
+    lines.append(
+        "Przygotuj jednowierszowy tytuł SEO i nagłówek (55-60 znaków), bez dwukropków i dopisków, wykorzystując naturalnie przynajmniej jedno kluczowe słowo z tematu lub listy słów kluczowych."
+    )
     lines.append(
         "Opracuj sugestywny nagłówek, rozbudowany lead i sekcje, które odpowiadają na potrzeby odbiorców joga.yoga."
     )

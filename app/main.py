@@ -148,7 +148,7 @@ DEFAULT_FAQ = [
     },
 ]
 
-SUMMARY_TITLE_MAX_CHARS = 240
+SUMMARY_TITLE_MAX_CHARS = 60
 SUMMARY_TITLE_ELLIPSIS = "…"
 
 
@@ -162,10 +162,13 @@ def _truncate_summary_title(value: str) -> str:
         return ""
     if len(text) <= SUMMARY_TITLE_MAX_CHARS:
         return text
-    truncated = text[:SUMMARY_TITLE_MAX_CHARS].rstrip()
+    allowed = max(1, SUMMARY_TITLE_MAX_CHARS - len(SUMMARY_TITLE_ELLIPSIS))
+    truncated = text[:allowed].rstrip()
     if " " in truncated:
         truncated = truncated.rsplit(" ", 1)[0]
     truncated = truncated.rstrip(" ,.;:-")
+    if not truncated:
+        truncated = text[:allowed].rstrip(" ,.;:-")
     return f"{truncated}{SUMMARY_TITLE_ELLIPSIS}"
 
 

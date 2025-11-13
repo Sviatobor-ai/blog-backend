@@ -17,7 +17,12 @@ from sqlalchemy import func  # noqa: E402
 from sqlalchemy.types import JSON  # noqa: E402
 
 from app.db import Base, SessionLocal, engine  # noqa: E402
-from app.main import app, get_generator  # noqa: E402
+from app.main import (
+    SUMMARY_TITLE_ELLIPSIS,
+    SUMMARY_TITLE_MAX_CHARS,
+    app,
+    get_generator,
+)  # noqa: E402
 from app.models import Post  # noqa: E402
 from app.schemas import ArticleDocument  # noqa: E402
 
@@ -50,7 +55,7 @@ SAMPLE_DOCUMENT = {
         "tags": ["joga", "relaks", "mindfulness"],
     },
     "seo": {
-        "title": "Joga nidra dla początkujących – joga.yoga",
+        "title": "Joga nidra dla początkujących regeneracja",
         "description": (
             "Dowiedz się, jak zacząć praktykę jogi nidry, by uspokoić układ nerwowy, poprawić regenerację i zbudować"
             " wieczorny rytuał relaksu podczas wyjazdów wellness."
@@ -60,7 +65,7 @@ SAMPLE_DOCUMENT = {
         "robots": "index,follow",
     },
     "article": {
-        "headline": "Joga nidra dla początkujących: pierwszy krok do głębokiego relaksu",
+        "headline": "Pierwsze kroki w jodze nidrze",
         "lead": (
             "Joga nidra to prowadzone wejście w stan głębokiego odprężenia, które możesz praktykować w domu oraz na wyjazdach"
             " regeneracyjnych, aby ukoić układ nerwowy i świadomie zadbać o higienę snu nawet w intensywnym grafiku dnia. "
@@ -244,15 +249,13 @@ def test_list_articles_returns_summaries():
     second_document["topic"] = "Zaawansowana joga nidra"
     second_document["slug"] = "zaawansowana-joga-nidra"
     second_document["seo"] = dict(second_document["seo"])
-    second_document["seo"]["title"] = "Zaawansowana joga nidra – joga.yoga"
+    second_document["seo"]["title"] = "Zaawansowana joga nidra regeneracja"
     second_document["seo"]["slug"] = "zaawansowana-joga-nidra"
     second_document["seo"]["canonical"] = (
         "https://wiedza.joga.yoga/zaawansowana-joga-nidra"
     )
     second_document["article"] = dict(second_document["article"])
-    second_document["article"]["headline"] = (
-        "Zaawansowana joga nidra: prowadzenie praktyki"
-    )
+    second_document["article"]["headline"] = "Zaawansowana joga nidra prowadzenie"
     second = _create_post(document=second_document)
 
     response = client.get("/artykuly")
@@ -290,9 +293,9 @@ def test_list_articles_extends_titles_and_adds_ellipsis():
     assert len(data["items"]) == 1
     summary = data["items"][0]
     assert summary["headline"] == long_headline
-    assert summary["title"].endswith("…")
-    assert len(summary["title"]) <= 241
-    assert len(summary["title"]) > 200
+    assert summary["title"].endswith(SUMMARY_TITLE_ELLIPSIS)
+    assert len(summary["title"]) <= SUMMARY_TITLE_MAX_CHARS
+    assert len(summary["title"]) >= SUMMARY_TITLE_MAX_CHARS - 15
 
 
 def test_list_articles_supports_search_by_tags():
