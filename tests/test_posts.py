@@ -56,7 +56,7 @@ SAMPLE_DOCUMENT = {
             " wieczorny rytuał relaksu podczas wyjazdów wellness."
         ),
         "slug": "joga-nidra-dla-poczatkujacych",
-        "canonical": "https://wiedza.joga.yoga/joga-nidra-dla-poczatkujacych",
+        "canonical": "https://wiedza.joga.yoga/artykuly/joga-nidra-dla-poczatkujacych",
         "robots": "index,follow",
     },
     "article": {
@@ -247,7 +247,7 @@ def test_list_articles_returns_summaries():
     second_document["seo"]["title"] = "Zaawansowana joga nidra – joga.yoga"
     second_document["seo"]["slug"] = "zaawansowana-joga-nidra"
     second_document["seo"]["canonical"] = (
-        "https://wiedza.joga.yoga/zaawansowana-joga-nidra"
+        "https://wiedza.joga.yoga/artykuly/zaawansowana-joga-nidra"
     )
     second_document["article"] = dict(second_document["article"])
     second_document["article"]["headline"] = (
