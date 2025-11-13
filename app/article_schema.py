@@ -63,8 +63,11 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
             "properties": {
                 "title": {
                     "type": "string",
-                    "maxLength": 70,
-                "description": "SEO title w języku polskim.",
+                    "maxLength": 60,
+                    "pattern": "^[^:\n]{1,60}$",
+                    "description": (
+                        "Jednowierszowy tytuł SEO (55-60 znaków) bez dwukropków, zawierający kluczowe słowo w języku polskim."
+                    ),
                 },
                 "description": {
                     "type": "string",
@@ -94,7 +97,11 @@ ARTICLE_DOCUMENT_SCHEMA: Dict[str, Any] = {
             "properties": {
                 "headline": {
                     "type": "string",
-                    "description": "Nagłówek artykułu w języku polskim.",
+                    "maxLength": 60,
+                    "pattern": "^[^:\n]{1,60}$",
+                    "description": (
+                        "Jednowierszowy nagłówek artykułu (55-60 znaków) bez dwukropków, zawierający kluczowe słowo w języku polskim."
+                    ),
                 },
                 "lead": {
                     "type": "string",
