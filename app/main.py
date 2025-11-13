@@ -215,7 +215,7 @@ def _ensure_faq(faq_items: List[dict] | None) -> List[dict]:
         if question and answer:
             sanitized.append({"question": question, "answer": answer})
     defaults_iter = iter(DEFAULT_FAQ)
-    while len(sanitized) < 2:
+    while len(sanitized) < 1:
         try:
             sanitized.append(dict(next(defaults_iter)))
         except StopIteration:

@@ -66,6 +66,14 @@ docker push $IMAGE_URI
 SERVICE_ARN="arn:aws:apprunner:eu-central-1:685716749010:service/autoblogger-backend/08a8286c5d1c4b71b3c970b046d45cc2"
 aws apprunner start-deployment --service-arn "$SERVICE_ARN"
 
+SERVICE_ARN="arn:aws:apprunner:eu-central-1:685716749010:service/autoblogger-backend/08a8286c5d1c4b71b3c970b046d45cc2"
+REPO_URI="685716749010.dkr.ecr.eu-central-1.amazonaws.com/blog-backend"
+NEW_TAG="prod-32"
+
+aws apprunner update-service \
+  --service-arn "$SERVICE_ARN" \
+  --source-configuration "ImageRepository={ImageIdentifier=${REPO_URI}:${NEW_TAG},ImageRepositoryType=ECR}"
+
 aws apprunner update-service \
   --service-arn "$SERVICE_ARN" \
   --auto-deployments-enabled
@@ -73,6 +81,7 @@ aws apprunner update-service \
 
 uvicorn app.main:app --reload --port 8000
 # Then open http://localhost:8000/health
+# Run Docker!
 
 # Отключить конвертацию путей MSYS (важно для /aws/...)
 export MSYS2_ARG_CONV_EXCL="*"
