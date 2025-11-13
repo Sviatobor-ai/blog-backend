@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 os.environ.setdefault("APP_ENV", "dev")
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_posts.db")
+os.environ.setdefault("NEXT_PUBLIC_SITE_URL", "https://wiedza.joga.yoga")
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -55,7 +56,7 @@ SAMPLE_DOCUMENT = {
             " wieczorny rytuał relaksu podczas wyjazdów wellness."
         ),
         "slug": "joga-nidra-dla-poczatkujacych",
-        "canonical": "https://joga.yoga/artykuly/joga-nidra-dla-poczatkujacych",
+        "canonical": "https://wiedza.joga.yoga/joga-nidra-dla-poczatkujacych",
         "robots": "index,follow",
     },
     "article": {
@@ -246,7 +247,7 @@ def test_list_articles_returns_summaries():
     second_document["seo"]["title"] = "Zaawansowana joga nidra – joga.yoga"
     second_document["seo"]["slug"] = "zaawansowana-joga-nidra"
     second_document["seo"]["canonical"] = (
-        "https://joga.yoga/artykuly/zaawansowana-joga-nidra"
+        "https://wiedza.joga.yoga/zaawansowana-joga-nidra"
     )
     second_document["article"] = dict(second_document["article"])
     second_document["article"]["headline"] = (
@@ -268,6 +269,30 @@ def test_list_articles_returns_summaries():
     assert summaries[first.slug]["headline"] == first.headline
     assert summaries[second.slug]["lead"] == second.lead
     assert summaries[second.slug]["headline"] == second.headline
+
+
+def test_list_articles_extends_titles_and_adds_ellipsis():
+    _reset_database()
+    long_headline = (
+        "Bardzo długi nagłówek artykułu opisujący praktyki regeneracji na wyjazdach wellness "
+        "oraz sposoby na utrzymanie spokoju i równowagi przez cały dzień zajęć."
+    )
+    long_headline = " ".join([long_headline] * 4)
+    _create_post(
+        slug="dlugi-tytul",
+        title="Krótki tytuł",
+        headline=long_headline,
+    )
+
+    response = client.get("/artykuly")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) == 1
+    summary = data["items"][0]
+    assert summary["headline"] == long_headline
+    assert summary["title"].endswith("…")
+    assert len(summary["title"]) <= 241
+    assert len(summary["title"]) > 200
 
 
 def test_list_articles_supports_search_by_tags():

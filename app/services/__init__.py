@@ -91,8 +91,9 @@ def _load_payload(text: str) -> dict[str, Any]:
 
 @lru_cache
 def _article_canonical_base() -> str:
-    base = get_site_base_url().rstrip("/")
-    return f"{base}/artykuly"
+    """Return the canonical base URL without forcing a fixed path segment."""
+
+    return get_site_base_url().rstrip("/")
 
 
 def get_article_canonical_base() -> str:

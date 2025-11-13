@@ -35,6 +35,7 @@ from .schemas import (
 from .services import (
     ArticleGenerationError,
     OpenAIAssistantArticleGenerator,
+    build_canonical_for_slug,
 )
 from .services.article_publication import (
     persist_article_document,
@@ -147,9 +148,35 @@ DEFAULT_FAQ = [
     },
 ]
 
+SUMMARY_TITLE_MAX_CHARS = 240
+SUMMARY_TITLE_ELLIPSIS = "…"
+
 
 def _normalize_text(value: str) -> str:
     return " ".join((value or "").split())
+
+
+def _truncate_summary_title(value: str) -> str:
+    text = _normalize_text(value)
+    if not text:
+        return ""
+    if len(text) <= SUMMARY_TITLE_MAX_CHARS:
+        return text
+    truncated = text[:SUMMARY_TITLE_MAX_CHARS].rstrip()
+    if " " in truncated:
+        truncated = truncated.rsplit(" ", 1)[0]
+    truncated = truncated.rstrip(" ,.;:-")
+    return f"{truncated}{SUMMARY_TITLE_ELLIPSIS}"
+
+
+def _build_summary_title(post: Post) -> str:
+    candidates = [post.headline, post.title]
+    for candidate in candidates:
+        truncated = _truncate_summary_title(candidate or "")
+        if truncated:
+            return truncated
+    fallback = post.slug.replace("-", " ")
+    return _truncate_summary_title(fallback)
 
 
 def _ensure_text_length(value: str, *, minimum: int, maximum: int | None = None) -> str:
@@ -233,9 +260,9 @@ def document_from_post(post: Post) -> ArticleDocument:
                 post.slug,
                 exc,
             )
-    canonical = post.canonical or f"https://joga.yoga/artykuly/{post.slug}"
-    if not isinstance(canonical, str) or not canonical.startswith("http"):
-        canonical = f"https://joga.yoga/artykuly/{post.slug}"
+    canonical = str(post.canonical) if post.canonical else ""
+    if not canonical.startswith("http"):
+        canonical = build_canonical_for_slug(post.slug)
     taxonomy_section = _normalize_text(post.section) or DEFAULT_CATEGORY
     categories = _ensure_categories(post.categories, taxonomy_section)
     tags = _ensure_tags(post.tags)
@@ -349,7 +376,7 @@ def list_articles(
     items = [
         ArticleSummary(
             slug=post.slug,
-            title=post.title,
+            title=_build_summary_title(post),
             headline=post.headline,
             lead=post.lead,
             section=post.section,
