@@ -23,6 +23,15 @@ class OpenAISettings:
     request_timeout_s: float
 
 
+@dataclass(frozen=True)
+class ParallelSearchSettings:
+    """Configuration for the Parallel.ai Deep Search integration."""
+
+    api_key: str | None
+    base_url: str
+    request_timeout_s: float
+
+
 @lru_cache
 def get_database_url() -> str:
     """Return the configured database URL or fail fast when missing."""
@@ -53,6 +62,16 @@ def get_openai_settings() -> OpenAISettings:
         request_timeout_s=timeout,
     )
 
+
+@lru_cache
+def get_parallel_search_settings() -> ParallelSearchSettings:
+    """Return configuration for Parallel.ai Deep Search requests."""
+
+    return ParallelSearchSettings(
+        api_key=os.getenv("PARALLELAI_API_KEY"),
+        base_url=os.getenv("PARALLELAI_BASE_URL", "https://api.parallel.ai"),
+        request_timeout_s=float(os.getenv("PARALLELAI_TIMEOUT_S", "120")),
+    )
 
 @lru_cache
 def get_site_base_url() -> str:
