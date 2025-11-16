@@ -46,6 +46,7 @@ def run_batch(limit: int | None = None, *, verbose: bool = False) -> None:
                 pipeline.enhance_post(db, post, now=now)
             except Exception as exc:  # pragma: no cover - runtime guard
                 logger.exception("enhancement failed for slug=%s: %s", post.slug, exc)
+                db.rollback()
 
 
 def main() -> None:
