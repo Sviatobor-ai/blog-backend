@@ -6,6 +6,10 @@ Backend service for managing blog content and taxonomy.
 
 - `DATABASE_URL` — SQLAlchemy database URL (PostgreSQL in production).
 - `APP_ENV` — set to `prod` in production to restrict CORS to trusted origins. Defaults to `dev`.
+- `OPENAI_API_KEY` — used by the generator and the enhancer writer.
+- `PARALLELAI_API_KEY` — key for the Parallel.ai Deep Search integration.
+- `PARALLELAI_BASE_URL` — optional, defaults to `https://api.parallelai.com`.
+- `PARALLELAI_TIMEOUT_S` — optional timeout (seconds) for Deep Search requests.
 
 ## Migrations
 
@@ -45,6 +49,32 @@ curl -s "https://<api-host>/articles/<slug>" | jq '.post.slug'
 
 The list endpoint must return the `{ meta, items }` envelope. The detail endpoint
 wraps the document inside the `post` key.
+
+## Article enhancer & LLMText regeneration
+
+1. Enhance eligible posts (older than 17 days) by running:
+
+   ```sh
+   python -m app.enhancer.run_batch --limit 5 --verbose
+   ```
+
+   The enhancer fetches Deep Search insights, asks OpenAI to generate a new
+   `Dopelniono {date}` section plus one FAQ entry, updates the payload/citations,
+   recomposes `body_mdx` and touches `updated_at`.
+
+2. Export the refreshed payloads for the LLMText toolkit:
+
+   ```sh
+    python -m app.export_payloads data/payloads
+   ```
+
+3. Regenerate the static Markdown mirrors (run from the frontend repo):
+
+   ```sh
+   npm run llmtext:generate -- data/payloads
+   ```
+
+Each step is idempotent and can be orchestrated via cron or CI.
 
 ## Changelog
 
