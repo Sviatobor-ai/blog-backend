@@ -8,7 +8,7 @@ Backend service for managing blog content and taxonomy.
 - `APP_ENV` — set to `prod` in production to restrict CORS to trusted origins. Defaults to `dev`.
 - `OPENAI_API_KEY` — used by the generator and the enhancer writer.
 - `PARALLELAI_API_KEY` — key for the Parallel.ai Deep Search integration.
-- `PARALLELAI_BASE_URL` — optional, defaults to `https://api.parallelai.com`.
+- `PARALLELAI_BASE_URL` — optional, defaults to `https://api.parallel.ai`.
 - `PARALLELAI_TIMEOUT_S` — optional timeout (seconds) for Deep Search requests.
 
 ## Migrations
