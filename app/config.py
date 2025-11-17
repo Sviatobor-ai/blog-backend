@@ -70,7 +70,7 @@ def get_parallel_search_settings() -> ParallelSearchSettings:
     return ParallelSearchSettings(
         api_key=os.getenv("PARALLELAI_API_KEY"),
         base_url=os.getenv("PARALLELAI_BASE_URL", "https://api.parallel.ai"),
-        request_timeout_s=float(os.getenv("PARALLELAI_TIMEOUT_S", "120")),
+        request_timeout_s=float(os.getenv("PARALLELAI_TIMEOUT_S", "1200")),
     )
 
 @lru_cache

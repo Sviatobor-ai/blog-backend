@@ -73,19 +73,45 @@ class ParallelDeepSearchClient:
 
     def _build_prompt(self, *, title: str, lead: str) -> str:
         lines = [
-            "Zbierz najnowsze i wiarygodne informacje powiązane z artykułem joga.yoga.",
-            "Potrzebne są fakty, dane liczbowe, trendy i komentarze ekspertów.",
-            "Preferuj źródła: duże europejskie/US media, instytucje akademickie i medyczne, WHO, UE, UNESCO,",
-            "uznane organizacje jogi/ajurwedy z Indii oraz Wikipedia.",
-            "Unikaj źródeł .ru lub rosyjskojęzycznych. Jeśli temat ma charakter konsumencki, dopuszczalne są",
-            "rzetelne poradniki lifestylowe.",
-            "Dla każdej pozycji podaj tytuł, krótkie streszczenie, URL i datę publikacji (jeśli dostępna).",
-            "Temat:",
+            "Przeprowadź pogłębione, ale zwięzłe badanie tematu związanego z artykułem na blogu joga.yoga.",
+            "Potrzebujemy aktualnych i wiarygodnych informacji, które pomogą uzupełnić istniejący tekst,",
+            "a nie napisać zupełnie nowy artykuł od zera.",
+            "",
+            "Zbieraj przede wszystkim:",
+            "- fakty i dane liczbowe (badania, statystyki, raporty),",
+            "- aktualne trendy, obserwacje i dobre praktyki,",
+            "- komentarze i perspektywy ekspertów (psychologia, zdrowie, joga, ajurweda itp.).",
+            "",
+            "Preferowane źródła (ale nie traktuj tego jako twardego filtra):",
+            "- duże europejskie i anglojęzyczne media o dobrej reputacji,",
+            "- instytucje akademickie i medyczne (uniwersytety, szpitale, organizacje zdrowotne),",
+            "- organizacje międzynarodowe (WHO, UE, UNESCO itp.),",
+            "- uznane organizacje i nauczyciele jogi/ajurwedy,",
+            "- Wikipedia jako punkt wyjścia, jeśli jest sensowna dla tematu.",
+            "",
+            "Jeśli temat ma charakter praktyczny lub lifestylowy (np. porady, ćwiczenia, codzienna praktyka),",
+            "możesz swobodnie korzystać z rzetelnych blogów, portali branżowych i poradników,",
+            "pod warunkiem że treść jest spójna, nienachalnie marketingowa i ma realną wartość dla czytelnika.",
+            "",
+            "Unikaj, o ile to możliwe, źródeł o niskiej wiarygodności (clickbaity, spam, treści silnie propagandowe).",
+            "Źródła rosyjskojęzyczne i domeny .ru traktuj bardzo ostrożnie i wybieraj je tylko wtedy,",
+            "gdy są naprawdę konieczne i wyraźnie eksperckie.",
+            "",
+            "Na wyjściu przygotuj:",
+            "1) Krótkie, syntetyczne podsumowanie najważniejszych ustaleń (1–3 akapity).",
+            "2) Wypunktowaną listę kluczowych wniosków lub obserwacji (3–7 punktów).",
+            "3) Listę 5–10 proponowanych źródeł do cytowania:",
+            "   dla każdego podaj tytuł, bardzo krótkie streszczenie, URL",
+            "   oraz datę publikacji, jeśli jest dostępna.",
+            "",
+            "Temat artykułu:",
             title.strip(),
+            "",
             "Lead artykułu:",
             lead.strip(),
         ]
         return "\n".join(line for line in lines if line)
+
 
     def _create_task_run(self, prompt: str) -> dict[str, Any]:
         url = f"{self._base_url}/v1/tasks/runs"
