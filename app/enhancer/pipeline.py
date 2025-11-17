@@ -49,8 +49,14 @@ class ArticleEnhancer:
             lead=document.article.lead,
         )
         citations = self._select_citations(search_result.sources)
-        if len(citations) < 3:
-            raise RuntimeError(f"Not enough high-quality sources for {post.slug}")
+        logger.info(
+            "deep search returned %d sources, %d usable citations for slug=%s",
+            len(search_result.sources),
+            len(citations),
+            post.slug,
+        )
+        if not citations:
+            logger.info("continuing without new citations for slug=%s", post.slug)
 
         request = EnhancementRequest(
             headline=document.article.headline,
@@ -63,10 +69,15 @@ class ArticleEnhancer:
         )
         response = self._writer.generate(request)
 
+        if citations:
+            citation_urls = [item.url for item in citations]
+        else:
+            citation_urls = list(document.article.citations)
+
         updated_document = self._apply_updates(
             document=document,
             response=response,
-            citations=[item.url for item in citations],
+            citations=citation_urls,
             enhancement_title=f"Dopelniono {enhancement_date.isoformat()}",
         )
 
@@ -87,27 +98,32 @@ class ArticleEnhancer:
 
     def _select_citations(self, sources: Iterable[DeepSearchSource]) -> List[CitationCandidate]:
         candidates: List[CitationCandidate] = []
+        seen: set[str] = set()
         for source in sources:
-            if not self._is_allowed_domain(source.url):
+            url = (source.url or "").strip()
+            if not url or url in seen:
                 continue
+            if not self._is_allowed_domain(url):
+                continue
+            seen.add(url)
             candidates.append(
                 CitationCandidate(
-                    url=source.url,
+                    url=url,
                     label=source.title or source.description,
                     score=source.score,
                     published_at=source.published_at,
                 )
             )
         candidates.sort(key=lambda item: (item.published_at or "", item.score or 0), reverse=True)
-        return candidates[:4]
+        return candidates[:6]
 
     def _is_allowed_domain(self, url: str) -> bool:
-        domain = urlparse(url).hostname or ""
-        blocked_suffixes = (".ru", ".su")
-        low_quality_tokens = {"blogspot", "wordpress", "pinterest", "reddit"}
-        if any(domain.endswith(suffix) for suffix in blocked_suffixes):
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
             return False
-        if any(token in domain for token in low_quality_tokens):
+        domain = parsed.hostname or ""
+        blocked_suffixes = (".ru", ".su")
+        if any(domain.endswith(suffix) for suffix in blocked_suffixes):
             return False
         return True
 
