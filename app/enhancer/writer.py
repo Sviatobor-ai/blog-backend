@@ -1,10 +1,9 @@
-"""OpenAI based helper that generates the enhancement block."""
+"""OpenAI based helper that generates the enhancement sections and FAQ."""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
 from typing import Any, List
 
 try:  # pragma: no cover - optional dependency guard
@@ -27,19 +26,18 @@ class EnhancementRequest:
     faq: List[dict[str, str]]
     insights: str | None
     citations: List[dict[str, str]]
-    enhancement_date: date
 
 
 @dataclass(slots=True)
 class EnhancementResponse:
     """Structured output from the OpenAI writer."""
 
-    added_section: dict[str, str]
+    added_sections: List[dict[str, str]]
     added_faq: dict[str, str]
 
 
 class EnhancementWriter:
-    """Generate the "Dopelniono" block and FAQ entry via OpenAI Responses API."""
+    """Generate fresh sections and FAQ entry via the OpenAI Responses API."""
 
     def __init__(self, *, api_key: str | None, model: str = "gpt-4.1-mini", timeout_s: float = 120.0) -> None:
         if not api_key:
@@ -69,15 +67,16 @@ class EnhancementWriter:
         text = self._extract_text(response)
         payload = self._parse_payload(text)
         return EnhancementResponse(
-            added_section=payload["added_section"],
+            added_sections=payload["added_sections"],
             added_faq=payload["added_faq"],
         )
 
     def _build_system_prompt(self) -> str:
         return (
             "Jesteś redaktorem joga.yoga. Piszesz po polsku, ciepłym i eksperckim tonem."
-            " Masz dodać jedną sekcję 'Dopelniono {data}' oraz jedno pytanie FAQ bazując na"
-            " najnowszych materiałach. Zwracasz wyłącznie JSON zgodny z poleceniem."
+            " Uzupełniasz istniejący artykuł o co najmniej dwie nowe sekcje H2 bazując"
+            " na świeżych materiałach zewnętrznych oraz dodajesz jedno pytanie FAQ."
+            " Nie używasz technicznych nagłówków ani dat w tytułach. Odpowiadasz tylko JSON-em."
         )
 
     def _build_user_prompt(self, request: EnhancementRequest) -> str:
@@ -89,7 +88,6 @@ class EnhancementWriter:
             f"- {item.get('label') or item['url']}: {item['url']}" for item in request.citations
         )
         insights = request.insights or "Brak dodatkowego streszczenia — wykorzystaj kontekst z linków."
-        enhancement_date = request.enhancement_date.isoformat()
         return (
             "Aktualny artykuł joga.yoga:\n"
             f"Nagłówek: {request.headline}\n"
@@ -97,13 +95,14 @@ class EnhancementWriter:
             f"Sekcje:\n{section_summaries}\n\n"
             f"FAQ:\n{faq_summary or '- brak'}\n\n"
             f"Nowe materiały z Parallel.ai:\n{insights}\n\n"
-            f"Źródła (3-4):\n{citation_lines}\n\n"
+            f"Źródła (max 6):\n{citation_lines}\n\n"
             "Polecenie:\n"
-            f"1. Napisz nową sekcję zatytułowaną dokładnie 'Dopelniono {enhancement_date}'.\n"
-            "   Sekcja ma mieć 2-4 akapity i jasno pokazywać, co się zmieniło względem oryginału.\n"
-            "2. Dodaj jedno nowe pytanie FAQ wraz z odpowiedzią na bazie świeżych informacji.\n"
-            "3. Nie przepisuj starej treści, korzystaj z linków i streszczenia powyżej.\n"
-            "4. Odpowiedz WYŁĄCZNIE w formacie JSON: {\"added_section\": {title, body}, \"added_faq\": {question, answer}}."
+            "1. Na bazie powyższych informacji przygotuj 2–3 zupełnie nowe sekcje artykułu.\n"
+            "   Każda sekcja ma mieć chwytliwy tytuł H2 po polsku (bez dat, bez frazy 'Dopelniono').\n"
+            "   W treści umieść konkretne wskazówki, przykłady lub dane zaczerpnięte z badań.\n"
+            "2. Dodaj jedno nowe pytanie FAQ wraz z odpowiedzią, inspirowane świeżymi insightami.\n"
+            "3. Nie kopiuj istniejących akapitów. Korzystaj z linków i streszczenia powyżej, łącząc je z kontekstem joga.yoga.\n"
+            "4. Odpowiedz WYŁĄCZNIE w formacie JSON: {\"added_sections\": [{title, body}, ...], \"added_faq\": {question, answer}}."
         )
 
     def _extract_text(self, response: Any) -> str:
@@ -128,8 +127,21 @@ class EnhancementWriter:
             payload = json.loads(text)
         except json.JSONDecodeError as exc:
             raise EnhancementWriterError(f"Assistant returned invalid JSON: {exc}") from exc
-        if "added_section" not in payload or "added_faq" not in payload:
+        if "added_sections" not in payload or "added_faq" not in payload:
             raise EnhancementWriterError("Assistant response missing required keys")
+        sections = payload["added_sections"]
+        if not isinstance(sections, list):
+            raise EnhancementWriterError("added_sections must be a list")
+        cleaned_sections: list[dict[str, str]] = []
+        for item in sections:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            body = str(item.get("body") or "").strip()
+            if not title or not body:
+                continue
+            cleaned_sections.append({"title": title, "body": body})
+        payload["added_sections"] = cleaned_sections
         return payload
 
 

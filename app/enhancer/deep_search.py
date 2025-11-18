@@ -9,6 +9,37 @@ import time
 
 import httpx
 
+_STRUCTURED_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {
+            "type": "string",
+            "description": "Synteza ustaleń z najważniejszymi faktami.",
+        },
+        "takeaways": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "List of short bullet points summarising findings.",
+        },
+        "sources": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "published_at": {"type": "string"},
+                    "score": {"type": "number"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    "required": ["summary", "sources"],
+}
+
 
 class DeepSearchError(RuntimeError):
     """Raised when Parallel.ai Deep Search request fails."""
@@ -118,7 +149,7 @@ class ParallelDeepSearchClient:
         payload = {
             "input": prompt,
             "processor": "ultra",
-            "task_spec": {"output_schema": {"type": "text"}},
+            "task_spec": {"output_schema": _STRUCTURED_OUTPUT_SCHEMA},
         }
         response = httpx.post(url, json=payload, headers=self._headers, timeout=self._timeout)
         response.raise_for_status()
@@ -146,12 +177,24 @@ class ParallelDeepSearchClient:
         output = payload.get("output") or run_result.get("output")
         basis = payload.get("basis") or run_result.get("basis") or []
         summary: str | None = None
+        structured_sources: list[Any] = []
         if isinstance(output, str):
             summary = output
         elif isinstance(output, dict):
-            summary = output.get("text") or output.get("report")
+            summary = (
+                output.get("summary")
+                or output.get("insights")
+                or output.get("text")
+                or output.get("report")
+            )
+            structured_sources = output.get("sources") or output.get("references") or []
 
-        sources = self._extract_sources(basis)
+        if not isinstance(structured_sources, list):
+            structured_sources = []
+        source_payload: list[Any] = list(structured_sources)
+        if isinstance(basis, list):
+            source_payload.extend(basis)
+        sources = self._extract_sources(source_payload)
         return DeepSearchResult(summary=summary, sources=sources)
 
     def _extract_sources(self, items: Iterable[Any]) -> List[DeepSearchSource]:

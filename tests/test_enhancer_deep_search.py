@@ -26,29 +26,30 @@ def test_parallel_deep_search_returns_sources(monkeypatch):
         {
             "status": "completed",
             "run_id": "run-123",
-            "output": "Research summary text",
-            "basis": [
-                {
-                    "citations": [
-                        {
-                            "url": "https://example.com/one",
-                            "title": "Example One",
-                            "excerpts": ["Snippet A"],
-                        },
-                        {
-                            "url": "https://example.com/two",
-                            "title": "Example Two",
-                            "excerpts": ["Snippet B"],
-                        },
-                    ]
-                }
-            ],
+            "output": {
+                "summary": "Research summary text",
+                "sources": [
+                    {
+                        "url": "https://example.com/one",
+                        "title": "Example One",
+                        "description": "Snippet A",
+                    },
+                    {
+                        "url": "https://example.com/two",
+                        "title": "Example Two",
+                        "description": "Snippet B",
+                    },
+                ],
+            },
         },
     ]
 
     def fake_post(url: str, json: dict, headers: dict, timeout: float):  # type: ignore[override]
         assert url.endswith("/v1/tasks/runs")
         assert headers.get("x-api-key") == "secret"
+        schema = json["task_spec"]["output_schema"]
+        assert schema["type"] == "object"
+        assert "sources" in schema["properties"]
 
         class Response:
             def raise_for_status(self):

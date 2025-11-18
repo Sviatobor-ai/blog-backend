@@ -42,6 +42,7 @@ def _create_post(slug: str, created_at: datetime) -> None:
             body_mdx="Body",
             payload={"foo": "bar"},
             created_at=created_at,
+            updated_at=created_at,
         )
         session.add(post)
         session.commit()
@@ -62,15 +63,20 @@ def test_run_batch_rolls_back_and_continues(monkeypatch):
             pass
 
     class FakeEnhancer:
+        calls: list[str] = []
+
         def __init__(self, *args, **kwargs):
             pass
 
         def enhance_post(self, db, post, now):  # pragma: no cover - exercised via run_batch
+            self.calls.append(post.slug)
             if post.slug == "first":
                 db.execute(text("SELECT * FROM missing_table"))
             else:
-                post.title = "updated"
+                db.execute(text("UPDATE posts SET title='updated' WHERE slug=:slug"), {"slug": post.slug})
                 db.commit()
+
+    FakeEnhancer.calls = []
 
     monkeypatch.setattr(run_batch, "EnhancementWriter", FakeWriter)
     monkeypatch.setattr(run_batch, "ParallelDeepSearchClient", FakeSearchClient)
@@ -82,4 +88,5 @@ def test_run_batch_rolls_back_and_continues(monkeypatch):
         first = session.query(Post).filter_by(slug="first").one()
         second = session.query(Post).filter_by(slug="second").one()
         assert first.title == "first title"
+        assert FakeEnhancer.calls == ["first", "second"]
         assert second.title == "updated"
