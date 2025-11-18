@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from typing import Iterable, List
 from urllib.parse import urlparse
 
@@ -39,10 +39,6 @@ class ArticleEnhancer:
         """Enhance a single post. Returns ``True`` when changes were applied."""
 
         document = self._load_document(post)
-        enhancement_date = now.date()
-        if self._has_section_for_date(document, enhancement_date):
-            logger.info("post %s already enhanced for %s", post.slug, enhancement_date)
-            return False
 
         search_result = self._search_client.search(
             title=document.seo.title or document.article.headline,
@@ -65,9 +61,14 @@ class ArticleEnhancer:
             faq=[faq.model_dump() for faq in document.aeo.faq],
             insights=search_result.summary,
             citations=[{"url": item.url, "label": item.label or item.url} for item in citations],
-            enhancement_date=enhancement_date,
         )
         response = self._writer.generate(request)
+        logger.info(
+            "writer produced %d sections and %s FAQ for slug=%s",
+            len(response.added_sections),
+            "a new" if response.added_faq else "no",
+            post.slug,
+        )
 
         if citations:
             citation_urls = [item.url for item in citations]
@@ -78,7 +79,6 @@ class ArticleEnhancer:
             document=document,
             response=response,
             citations=citation_urls,
-            enhancement_title=f"Dopelniono {enhancement_date.isoformat()}",
         )
 
         self._persist(db, post, updated_document, now=now)
@@ -88,13 +88,6 @@ class ArticleEnhancer:
         if not post.payload:
             raise RuntimeError(f"Post {post.slug} does not have payload")
         return ArticleDocument.model_validate(post.payload)
-
-    def _has_section_for_date(self, document: ArticleDocument, enhancement_date: date) -> bool:
-        target = f"dopelniono {enhancement_date.isoformat()}"
-        for section in document.article.sections:
-            if section.title.strip().lower() == target:
-                return True
-        return False
 
     def _select_citations(self, sources: Iterable[DeepSearchSource]) -> List[CitationCandidate]:
         candidates: List[CitationCandidate] = []
@@ -133,18 +126,13 @@ class ArticleEnhancer:
         document: ArticleDocument,
         response: EnhancementResponse,
         citations: List[str],
-        enhancement_title: str,
     ) -> ArticleDocument:
         data = document.model_dump(mode="json")
         sections = data["article"]["sections"]
-        section_title = response.added_section.get("title") or enhancement_title
-        section_body = response.added_section.get("body") or ""
-        sections.append(
-            {
-                "title": section_title,
-                "body": section_body,
-            }
-        )
+        new_sections = self._prepare_sections(response.added_sections)
+        if not new_sections:
+            raise RuntimeError("writer response missing usable sections")
+        sections.extend(new_sections)
         faq_items = data["aeo"].setdefault("faq", [])
         new_question = (response.added_faq.get("question") or "").strip()
         if new_question and not any(item.get("question", "").strip().lower() == new_question.lower() for item in faq_items):
@@ -158,6 +146,17 @@ class ArticleEnhancer:
             del faq_items[0 : len(faq_items) - ARTICLE_FAQ_MAX]
         data["article"]["citations"] = citations
         return ArticleDocument.model_validate(data)
+
+    def _prepare_sections(self, raw_sections: Iterable[dict[str, str]]) -> List[dict[str, str]]:
+        prepared: List[dict[str, str]] = []
+        for index, raw in enumerate(raw_sections):
+            title = str(raw.get("title") or "").strip()
+            body = str(raw.get("body") or "").strip()
+            if not title or not body:
+                logger.warning("writer returned incomplete section idx=%s", index)
+                continue
+            prepared.append({"title": title, "body": body})
+        return prepared
 
     def _persist(self, db: Session, post: Post, document: ArticleDocument, *, now: datetime) -> None:
         post.payload = document.model_dump(mode="json")

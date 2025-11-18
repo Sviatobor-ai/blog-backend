@@ -58,8 +58,8 @@ wraps the document inside the `post` key.
    python -m app.enhancer.run_batch --limit 5 --verbose
    ```
 
-   The enhancer fetches Deep Search insights, asks OpenAI to generate a new
-   `Dopelniono {date}` section plus one FAQ entry, updates the payload/citations,
+   The enhancer fetches Deep Search insights, asks OpenAI to generate kilka nowych
+   sekcji oraz jedno pytanie FAQ, aktualizuje payload/citations,
    recomposes `body_mdx` and touches `updated_at`.
 
 2. Export the refreshed payloads for the LLMText toolkit:
