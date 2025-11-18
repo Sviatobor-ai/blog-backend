@@ -70,10 +70,28 @@ class ArticleEnhancer:
             post.slug,
         )
 
-        if citations:
+        existing_citation_urls = [str(url) for url in document.article.citations]
+        if len(citations) >= 2:
             citation_urls = [item.url for item in citations]
+            logger.info(
+                "replacing citations with %d new links for slug=%s",
+                len(citation_urls),
+                post.slug,
+            )
+        elif len(citations) == 1:
+            citation_urls = self._merge_single_citation(existing_citation_urls, citations[0].url)
+            logger.info(
+                "merging single new citation with %d existing for slug=%s",
+                len(existing_citation_urls),
+                post.slug,
+            )
         else:
-            citation_urls = list(document.article.citations)
+            citation_urls = existing_citation_urls
+            logger.info(
+                "retaining %d existing citations for slug=%s",
+                len(citation_urls),
+                post.slug,
+            )
 
         updated_document = self._apply_updates(
             document=document,
@@ -170,6 +188,20 @@ class ArticleEnhancer:
         db.commit()
         db.refresh(post)
         logger.info("post %s enhanced", post.slug)
+
+    def _merge_single_citation(self, existing: List[str], new_url: str) -> List[str]:
+        merged: List[str] = []
+        if new_url:
+            merged.append(new_url)
+        for url in existing:
+            if not url:
+                continue
+            if url in merged:
+                continue
+            merged.append(url)
+            if len(merged) >= 6:
+                break
+        return merged
 
 
 __all__ = ["ArticleEnhancer", "CitationCandidate"]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Iterable, List
 from urllib.parse import urlparse
@@ -9,36 +10,7 @@ import time
 
 import httpx
 
-_STRUCTURED_OUTPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "summary": {
-            "type": "string",
-            "description": "Synteza ustaleń z najważniejszymi faktami.",
-        },
-        "takeaways": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "List of short bullet points summarising findings.",
-        },
-        "sources": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string"},
-                    "title": {"type": "string"},
-                    "description": {"type": "string"},
-                    "published_at": {"type": "string"},
-                    "score": {"type": "number"},
-                },
-                "required": ["url"],
-            },
-        },
-    },
-    "required": ["summary", "sources"],
-}
+logger = logging.getLogger(__name__)
 
 
 class DeepSearchError(RuntimeError):
@@ -146,11 +118,12 @@ class ParallelDeepSearchClient:
 
     def _create_task_run(self, prompt: str) -> dict[str, Any]:
         url = f"{self._base_url}/v1/tasks/runs"
-        payload = {
-            "input": prompt,
-            "processor": "ultra",
-            "task_spec": {"output_schema": _STRUCTURED_OUTPUT_SCHEMA},
-        }
+        payload = {"input": prompt, "processor": "ultra"}
+        logger.debug(
+            "creating Parallel.ai task run with processor=%s and payload keys=%s",
+            payload.get("processor"),
+            sorted(payload.keys()),
+        )
         response = httpx.post(url, json=payload, headers=self._headers, timeout=self._timeout)
         response.raise_for_status()
         return response.json()
@@ -174,8 +147,7 @@ class ParallelDeepSearchClient:
 
     def _parse_result(self, payload: dict[str, Any]) -> DeepSearchResult:
         run_result = payload.get("run_result") or {}
-        output = payload.get("output") or run_result.get("output")
-        basis = payload.get("basis") or run_result.get("basis") or []
+        output = payload.get("output") or run_result.get("output") or {}
         summary: str | None = None
         structured_sources: list[Any] = []
         if isinstance(output, str):
@@ -189,8 +161,21 @@ class ParallelDeepSearchClient:
             )
             structured_sources = output.get("sources") or output.get("references") or []
 
+        basis = (
+            payload.get("basis")
+            or run_result.get("basis")
+            or (output.get("basis") if isinstance(output, dict) else None)
+            or []
+        )
+
         if not isinstance(structured_sources, list):
             structured_sources = []
+        logger.debug(
+            "Parallel.ai result keys=%s output_keys=%s basis_items=%s",
+            sorted(payload.keys()),
+            sorted(output.keys()) if isinstance(output, dict) else type(output).__name__,
+            len(basis) if isinstance(basis, list) else 0,
+        )
         source_payload: list[Any] = list(structured_sources)
         if isinstance(basis, list):
             source_payload.extend(basis)
@@ -201,51 +186,70 @@ class ParallelDeepSearchClient:
         sources: List[DeepSearchSource] = []
         seen: set[str] = set()
         for raw in items:
-            citations = raw.get("citations") if isinstance(raw, dict) else None
-            if citations:
+            if len(sources) >= 6:
+                break
+            if not isinstance(raw, dict):
+                continue
+            citations = raw.get("citations")
+            if isinstance(citations, list) and citations:
                 for citation in citations:
-                    url = str(citation.get("url") or "").strip()
-                    if not url:
-                        continue
-                    parsed = urlparse(url)
-                    if not parsed.scheme.startswith("http"):
-                        continue
-                    if url in seen:
-                        continue
-                    seen.add(url)
-                    excerpts = citation.get("excerpts") or []
-                    description = str(excerpts[0]) if excerpts else None
-                    sources.append(
-                        DeepSearchSource(
-                            url=url,
-                            title=(citation.get("title") or citation.get("name")),
-                            description=description,
-                            published_at=citation.get("published_at") or citation.get("date"),
-                            score=citation.get("score"),
-                        )
-                    )
+                    if len(sources) >= 6:
+                        break
+                    source = self._build_source(citation)
+                    if source and source.url not in seen:
+                        seen.add(source.url)
+                        sources.append(source)
                 continue
 
-            getter = raw.get if isinstance(raw, dict) else getattr(raw, "get", None)
-            if getter is None:
-                continue
-            url = str(getter("url") or "").strip()
-            if not url:
-                continue
-            parsed = urlparse(url)
-            if not parsed.scheme.startswith("http") or url in seen:
-                continue
-            seen.add(url)
-            sources.append(
-                DeepSearchSource(
-                    url=url,
-                    title=(getter("title") or getter("name")),
-                    description=(getter("description") or getter("snippet") or getter("summary")),
-                    published_at=getter("published_at") or getter("date"),
-                    score=getter("score") or getter("relevance"),
-                )
-            )
+            source = self._build_source(raw)
+            if source and source.url not in seen:
+                seen.add(source.url)
+                sources.append(source)
         return sources
+
+    def _build_source(self, payload: Any) -> DeepSearchSource | None:
+        if not isinstance(payload, dict):
+            return None
+        url = str(payload.get("url") or payload.get("link") or "").strip()
+        if not url:
+            return None
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            return None
+        domain = parsed.hostname or ""
+        if any(domain.endswith(suffix) for suffix in (".ru", ".su")):
+            return None
+        excerpts = payload.get("excerpts") or payload.get("snippet") or payload.get("snippets")
+        description: str | None = None
+        if isinstance(excerpts, list) and excerpts:
+            description = str(excerpts[0])
+        elif isinstance(excerpts, str):
+            description = excerpts
+        else:
+            description = (
+                payload.get("description")
+                or payload.get("summary")
+                or payload.get("insight")
+            )
+            if description is not None:
+                description = str(description)
+        title = payload.get("title") or payload.get("name")
+        if title is not None:
+            title = str(title)
+        published_at = payload.get("published_at") or payload.get("date")
+        score_value = payload.get("score") or payload.get("confidence") or payload.get("relevance")
+        score: float | None
+        try:
+            score = float(score_value) if score_value is not None else None
+        except (TypeError, ValueError):  # pragma: no cover - defensive guard
+            score = None
+        return DeepSearchSource(
+            url=url,
+            title=title,
+            description=description,
+            published_at=str(published_at) if published_at else None,
+            score=score,
+        )
 
 
 __all__ = ["ParallelDeepSearchClient", "DeepSearchResult", "DeepSearchSource", "DeepSearchError"]
