@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 
+import httpx
 import pytest
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -21,25 +22,42 @@ def _patch_sleep(monkeypatch):
 
 
 def test_parallel_deep_search_returns_sources(monkeypatch):
+    basis_citations = [
+        {
+            "citations": [
+                {
+                    "url": "https://blocked.ru/skip",
+                    "title": "Blocked",
+                    "excerpts": ["spam"],
+                }
+            ]
+        },
+        {
+            "citations": [
+                {
+                    "url": f"https://example.com/{idx}",
+                    "title": f"Example {idx}",
+                    "excerpts": [f"Snippet {idx}"],
+                    "score": idx,
+                }
+                for idx in range(2, 9)
+            ]
+        },
+    ]
     statuses = [
         {"status": "running", "run_id": "run-123"},
         {
             "status": "completed",
             "run_id": "run-123",
-            "output": {
-                "summary": "Research summary text",
-                "sources": [
-                    {
-                        "url": "https://example.com/one",
-                        "title": "Example One",
-                        "description": "Snippet A",
-                    },
-                    {
-                        "url": "https://example.com/two",
-                        "title": "Example Two",
-                        "description": "Snippet B",
-                    },
-                ],
+            "run_result": {
+                "output": {
+                    "summary": "Research summary text",
+                    "sources": [
+                        {"url": "https://example.com/one", "title": "Example One", "description": "Snippet A"},
+                        {"url": "https://example.com/2", "title": "Duplicate"},
+                    ],
+                    "basis": basis_citations,
+                }
             },
         },
     ]
@@ -47,9 +65,8 @@ def test_parallel_deep_search_returns_sources(monkeypatch):
     def fake_post(url: str, json: dict, headers: dict, timeout: float):  # type: ignore[override]
         assert url.endswith("/v1/tasks/runs")
         assert headers.get("x-api-key") == "secret"
-        schema = json["task_spec"]["output_schema"]
-        assert schema["type"] == "object"
-        assert "sources" in schema["properties"]
+        assert json.get("processor") == "ultra"
+        assert isinstance(json.get("input"), str)
 
         class Response:
             def raise_for_status(self):
@@ -80,9 +97,22 @@ def test_parallel_deep_search_returns_sources(monkeypatch):
 
     assert isinstance(result, DeepSearchResult)
     assert result.summary == "Research summary text"
-    assert len(result.sources) == 2
-    assert {source.url for source in result.sources} == {
-        "https://example.com/one",
-        "https://example.com/two",
-    }
-    assert result.sources[0].title == "Example One"
+    assert len(result.sources) == 6  # capped at 6 despite more citations
+    urls = [source.url for source in result.sources]
+    assert "https://example.com/one" in urls
+    assert "https://example.com/2" in urls
+    assert len(set(urls)) == len(urls)
+    assert all(not url.endswith(".ru") for url in urls)
+
+
+def test_parallel_deep_search_handles_422(monkeypatch):
+    def fake_post(url: str, json: dict, headers: dict, timeout: float):  # type: ignore[override]
+        response = httpx.Response(422, request=httpx.Request("POST", url), json={"error": "bad"})
+        return response
+
+    monkeypatch.setattr(deep_search.httpx, "post", fake_post)
+
+    client = ParallelDeepSearchClient(api_key="secret", base_url="https://api.parallel.ai", timeout_s=5)
+    with pytest.raises(deep_search.DeepSearchError) as excinfo:
+        client.search(title="Yoga", lead="Lead")
+    assert "Parallel.ai request failed" in str(excinfo.value)

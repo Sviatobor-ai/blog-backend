@@ -118,3 +118,21 @@ def test_apply_updates_appends_sections_and_updates_faq(enhancer: ArticleEnhance
     assert updated.aeo.faq[-1].question == "Jak długo ćwiczyć?"
     # Oldest FAQ entry removed to respect ARTICLE_FAQ_MAX
     assert all(item.question != "Q1" for item in updated.aeo.faq)
+
+
+def test_merge_single_citation_preserves_existing_order(enhancer: ArticleEnhancer):
+    existing = [
+        "https://example.com/one",
+        "https://example.com/two",
+        "https://example.com/three",
+    ]
+    merged = enhancer._merge_single_citation(existing, "https://fresh.com/new")
+    assert merged[0] == "https://fresh.com/new"
+    assert merged[1:] == existing
+
+
+def test_merge_single_citation_limits_total_count(enhancer: ArticleEnhancer):
+    existing = [f"https://example.com/{idx}" for idx in range(10)]
+    merged = enhancer._merge_single_citation(existing, "https://fresh.com/new")
+    assert len(merged) == 6
+    assert merged[0] == "https://fresh.com/new"

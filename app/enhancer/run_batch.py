@@ -43,6 +43,7 @@ def run_batch(limit: int | None = None, *, verbose: bool = False) -> None:
         logger.info("found %s posts eligible for enhancement", len(posts))
         for post in posts:
             try:
+                logger.info("starting enhancement for slug=%s", post.slug)
                 pipeline.enhance_post(db, post, now=now)
             except Exception as exc:  # pragma: no cover - runtime guard
                 logger.exception("enhancement failed for slug=%s: %s", post.slug, exc)
