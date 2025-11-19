@@ -39,6 +39,8 @@ class DeepSearchResult:
 class ParallelDeepSearchClient:
     """Small HTTP client talking to Parallel.ai's Deep Research Task API."""
 
+    RESULTS_EXPANSION = "output,basis"
+
     def __init__(self, *, api_key: str | None, base_url: str, timeout_s: float = 60.0) -> None:
         if not api_key:
             raise DeepSearchError("PARALLELAI_API_KEY is not configured")
@@ -61,7 +63,11 @@ class ParallelDeepSearchClient:
             if not run_id:
                 raise DeepSearchError("Parallel.ai response missing run_id")
             result_url = run.get("result_url")
-            completed_run = self._poll_run(run_id=run_id, result_url=result_url, started_at=started_at)
+            completed_metadata = self._poll_run(run_id=run_id, started_at=started_at)
+            results_payload = self._fetch_results(
+                run_id=run_id,
+                result_url=result_url or completed_metadata.get("result_url"),
+            )
         except httpx.HTTPStatusError as exc:  # pragma: no cover - network guard
             status = exc.response.status_code
             if status in {401, 403}:
@@ -72,7 +78,7 @@ class ParallelDeepSearchClient:
         except httpx.HTTPError as exc:  # pragma: no cover - network guard
             raise DeepSearchError(f"Parallel.ai request failed: {exc}") from exc
 
-        return self._parse_result(completed_run)
+        return self._parse_result(results_payload)
 
     def _build_prompt(self, *, title: str, lead: str) -> str:
         lines = [
@@ -128,8 +134,8 @@ class ParallelDeepSearchClient:
         response.raise_for_status()
         return response.json()
 
-    def _poll_run(self, *, run_id: str, result_url: str | None, started_at: float) -> dict[str, Any]:
-        poll_url = result_url or f"{self._base_url}/v1/tasks/runs/{run_id}"
+    def _poll_run(self, *, run_id: str, started_at: float) -> dict[str, Any]:
+        poll_url = f"{self._base_url}/v1/tasks/runs/{run_id}"
         while True:
             elapsed = time.monotonic() - started_at
             if elapsed >= self._timeout:
@@ -138,12 +144,22 @@ class ParallelDeepSearchClient:
             response.raise_for_status()
             data = response.json()
             status = data.get("status") or data.get("run_status")
-            if status == "completed":
+            status_value = str(status).lower() if status else ""
+            if status_value in {"completed", "succeeded", "success", "finished"}:
                 return data
-            if status == "failed":
+            if status_value in {"failed", "error", "cancelled"}:
                 error_message = data.get("error") or data.get("error_message") or "task failed"
                 raise DeepSearchError(f"Parallel.ai task failed: {error_message}")
             time.sleep(1.0)
+
+    def _fetch_results(self, *, run_id: str, result_url: str | None) -> dict[str, Any]:
+        url = result_url or f"{self._base_url}/v1/tasks/results/{run_id}"
+        if self.RESULTS_EXPANSION:
+            separator = "&" if "?" in url else "?"
+            url = f"{url}{separator}expand={self.RESULTS_EXPANSION}"
+        response = httpx.get(url, headers=self._headers, timeout=self._timeout)
+        response.raise_for_status()
+        return response.json()
 
     def _parse_result(self, payload: dict[str, Any]) -> DeepSearchResult:
         run_result = payload.get("run_result") or {}
@@ -159,7 +175,18 @@ class ParallelDeepSearchClient:
                 or output.get("text")
                 or output.get("report")
             )
-            structured_sources = output.get("sources") or output.get("references") or []
+            if not summary:
+                content = output.get("content")
+                if isinstance(content, dict):
+                    summary = content.get("summary") or content.get("text")
+                elif isinstance(content, str):
+                    summary = content
+            structured_sources = (
+                output.get("sources")
+                or output.get("references")
+                or output.get("citations")
+                or []
+            )
 
         basis = (
             payload.get("basis")

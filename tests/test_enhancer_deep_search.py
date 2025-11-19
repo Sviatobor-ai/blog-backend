@@ -21,7 +21,7 @@ def _patch_sleep(monkeypatch):
     monkeypatch.setattr(deep_search.time, "sleep", lambda _s: None)
 
 
-def test_parallel_deep_search_returns_sources(monkeypatch):
+def test_parallel_deep_search_fetches_results_payload(monkeypatch):
     basis_citations = [
         {
             "citations": [
@@ -46,21 +46,20 @@ def test_parallel_deep_search_returns_sources(monkeypatch):
     ]
     statuses = [
         {"status": "running", "run_id": "run-123"},
-        {
-            "status": "completed",
-            "run_id": "run-123",
-            "run_result": {
-                "output": {
-                    "summary": "Research summary text",
-                    "sources": [
-                        {"url": "https://example.com/one", "title": "Example One", "description": "Snippet A"},
-                        {"url": "https://example.com/2", "title": "Duplicate"},
-                    ],
-                    "basis": basis_citations,
-                }
-            },
-        },
+        {"status": "succeeded", "run_id": "run-123"},
     ]
+
+    results_payload = {
+        "run_id": "run-123",
+        "output": {
+            "summary": "Research summary text",
+            "sources": [
+                {"url": "https://example.com/one", "title": "Example One", "description": "Snippet A"},
+                {"url": "https://example.com/2", "title": "Duplicate"},
+            ],
+            "basis": basis_citations,
+        },
+    }
 
     def fake_post(url: str, json: dict, headers: dict, timeout: float):  # type: ignore[override]
         assert url.endswith("/v1/tasks/runs")
@@ -78,13 +77,18 @@ def test_parallel_deep_search_returns_sources(monkeypatch):
         return Response()
 
     def fake_get(url: str, headers: dict, timeout: float):  # type: ignore[override]
-        assert "run-123" in url
+        assert headers.get("x-api-key") == "secret"
 
         class Response:
             def raise_for_status(self):
                 return None
 
             def json(self):
+                if "/v1/tasks/results/" in url:
+                    assert "expand=output,basis" in url
+                    return results_payload
+                assert statuses, "status polling exhausted"
+                assert "/v1/tasks/runs/" in url
                 return statuses.pop(0)
 
         return Response()
@@ -103,6 +107,56 @@ def test_parallel_deep_search_returns_sources(monkeypatch):
     assert "https://example.com/2" in urls
     assert len(set(urls)) == len(urls)
     assert all(not url.endswith(".ru") for url in urls)
+
+
+def test_parallel_deep_search_handles_missing_basis(monkeypatch):
+    statuses = [
+        {"status": "running", "run_id": "run-777"},
+        {"status": "completed", "run_id": "run-777"},
+    ]
+
+    results_payload = {
+        "output": {
+            "content": {"summary": "Nested summary"},
+            "sources": [
+                {"url": "https://example.com/a", "title": "Title A", "excerpts": "Snippet"},
+                {"url": "https://example.com/a", "title": "Title A", "excerpts": "Dup"},
+            ],
+        }
+    }
+
+    def fake_post(url: str, json: dict, headers: dict, timeout: float):  # type: ignore[override]
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"run_id": "run-777"}
+
+        return Response()
+
+    def fake_get(url: str, headers: dict, timeout: float):  # type: ignore[override]
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                if "/v1/tasks/results/" in url:
+                    return results_payload
+                return statuses.pop(0)
+
+        return Response()
+
+    monkeypatch.setattr(deep_search.httpx, "post", fake_post)
+    monkeypatch.setattr(deep_search.httpx, "get", fake_get)
+
+    client = ParallelDeepSearchClient(api_key="secret", base_url="https://api.parallel.ai", timeout_s=5)
+    result = client.search(title="Yoga benefits", lead="Lead text")
+
+    assert isinstance(result, DeepSearchResult)
+    assert result.summary == "Nested summary"
+    assert len(result.sources) == 1
+    assert result.sources[0].url == "https://example.com/a"
 
 
 def test_parallel_deep_search_handles_422(monkeypatch):
