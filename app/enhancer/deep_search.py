@@ -41,7 +41,7 @@ class ParallelDeepSearchClient:
 
     RESULTS_EXPANSION = "output,basis"
 
-    def __init__(self, *, api_key: str | None, base_url: str, timeout_s: float = 60.0) -> None:
+    def __init__(self, *, api_key: str | None, base_url: str, timeout_s: float = 1200.0) -> None:
         if not api_key:
             raise DeepSearchError("PARALLELAI_API_KEY is not configured")
         self._api_key = api_key
@@ -124,7 +124,7 @@ class ParallelDeepSearchClient:
 
     def _create_task_run(self, prompt: str) -> dict[str, Any]:
         url = f"{self._base_url}/v1/tasks/runs"
-        payload = {"input": prompt, "processor": "ultra"}
+        payload = {"input": prompt, "processor": "base"}
         logger.debug(
             "creating Parallel.ai task run with processor=%s and payload keys=%s",
             payload.get("processor"),

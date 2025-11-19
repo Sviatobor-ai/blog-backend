@@ -64,7 +64,7 @@ def test_parallel_deep_search_fetches_results_payload(monkeypatch):
     def fake_post(url: str, json: dict, headers: dict, timeout: float):  # type: ignore[override]
         assert url.endswith("/v1/tasks/runs")
         assert headers.get("x-api-key") == "secret"
-        assert json.get("processor") == "ultra"
+        assert json.get("processor") == "base"
         assert isinstance(json.get("input"), str)
 
         class Response:
