@@ -154,32 +154,66 @@ class ParallelDeepSearchClient:
             time.sleep(1.0)
 
     def _fetch_results(self, *, run_id: str, result_url: str | None) -> dict[str, Any]:
-        chosen_url = result_url or f"{self._base_url}/v1/tasks/results/{run_id}"
-        parsed = urlparse(chosen_url)
+        """
+        Fetch the final Deep Research result payload for a completed Parallel.ai task run.
+
+        Priority:
+        1. If Parallel returned a fully-qualified result_url, trust it as-is (except when it is
+        a relative path, in which case we join it with our base_url).
+        2. Otherwise, construct the official Task API result endpoint:
+        {base_url}/v1/tasks/runs/{run_id}/result
+
+        For foreign hosts (netloc different from our configured base host), we assume the URL
+        may be a signed URL and therefore:
+        - do not modify the query string (no expand=...),
+        - do not override headers unless explicitly required.
+        """
+        # Step 1: choose base URL for the results call
+        if result_url:
+            parsed_raw = urlparse(result_url)
+
+            # If Parallel returned a relative path like "/v1/tasks/runs/{run_id}/result"
+            # we need to join it with our configured base URL.
+            if not parsed_raw.scheme and not parsed_raw.netloc:
+                base = self._base_url.rstrip("/")
+                url = f"{base}/{result_url.lstrip('/')}"
+            else:
+                # Fully-qualified URL: use as-is
+                url = result_url
+        else:
+            # Fallback: construct the official results endpoint from base_url + run_id
+            base = self._base_url.rstrip("/")
+            url = f"{base}/v1/tasks/runs/{run_id}/result"
+
+        parsed = urlparse(url)
         using_foreign_host = bool(parsed.netloc and parsed.netloc != self._base_netloc)
+
+        # For foreign hosts we assume the URL might be signed and should not be altered.
+        # In that case we also avoid forcing our default headers unless we know it's required.
         headers = None if using_foreign_host else self._headers
 
-        # Respect fully qualified result URLs returned by Parallel.ai. If the URL is
-        # relative or uses our configured host, we can safely append the expand
-        # parameter; otherwise (likely a signed URL) we leave it intact to avoid
-        # breaking authorization.
-        url = chosen_url
-        if not parsed.scheme:
-            url = f"{self._base_url}/{chosen_url.lstrip('/')}"
-        elif parsed.netloc == self._base_netloc:
-            url = chosen_url
+        # Optionally append expand=... only when talking to our own Parallel host
+        # and only if it is not already present in the query string.
+        if not using_foreign_host and self.RESULTS_EXPANSION:
+            current_query = parsed.query or ""
+            if "expand=" not in current_query:
+                separator = "&" if current_query else "?"
+                url = f"{url}{separator}expand={self.RESULTS_EXPANSION}"
 
-        should_expand = bool(self.RESULTS_EXPANSION) and not using_foreign_host
-        if should_expand and "expand=" not in (parsed.query or ""):
-            separator = "&" if "?" in url else "?"
-            url = f"{url}{separator}expand={self.RESULTS_EXPANSION}"
+        logger.debug(
+            "fetching Parallel.ai results from %s (foreign_host=%s)",
+            url,
+            using_foreign_host,
+        )
 
-        logger.debug("fetching Parallel.ai results from %s (foreign_host=%s)", url, using_foreign_host)
         response = httpx.get(url, headers=headers, timeout=self._timeout)
         response.raise_for_status()
         payload = response.json()
+
         logger.debug(
-            "Parallel.ai results status=%s keys=%s", response.status_code, sorted(payload.keys())
+            "Parallel.ai results status=%s keys=%s",
+            response.status_code,
+            sorted(payload.keys()),
         )
         return payload
 
