@@ -46,6 +46,7 @@ class ParallelDeepSearchClient:
             raise DeepSearchError("PARALLELAI_API_KEY is not configured")
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
+        self._base_netloc = urlparse(self._base_url).netloc
         self._timeout = timeout_s
 
     @property
@@ -153,13 +154,34 @@ class ParallelDeepSearchClient:
             time.sleep(1.0)
 
     def _fetch_results(self, *, run_id: str, result_url: str | None) -> dict[str, Any]:
-        url = result_url or f"{self._base_url}/v1/tasks/results/{run_id}"
-        if self.RESULTS_EXPANSION:
+        chosen_url = result_url or f"{self._base_url}/v1/tasks/results/{run_id}"
+        parsed = urlparse(chosen_url)
+        using_foreign_host = bool(parsed.netloc and parsed.netloc != self._base_netloc)
+        headers = None if using_foreign_host else self._headers
+
+        # Respect fully qualified result URLs returned by Parallel.ai. If the URL is
+        # relative or uses our configured host, we can safely append the expand
+        # parameter; otherwise (likely a signed URL) we leave it intact to avoid
+        # breaking authorization.
+        url = chosen_url
+        if not parsed.scheme:
+            url = f"{self._base_url}/{chosen_url.lstrip('/')}"
+        elif parsed.netloc == self._base_netloc:
+            url = chosen_url
+
+        should_expand = bool(self.RESULTS_EXPANSION) and not using_foreign_host
+        if should_expand and "expand=" not in (parsed.query or ""):
             separator = "&" if "?" in url else "?"
             url = f"{url}{separator}expand={self.RESULTS_EXPANSION}"
-        response = httpx.get(url, headers=self._headers, timeout=self._timeout)
+
+        logger.debug("fetching Parallel.ai results from %s (foreign_host=%s)", url, using_foreign_host)
+        response = httpx.get(url, headers=headers, timeout=self._timeout)
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        logger.debug(
+            "Parallel.ai results status=%s keys=%s", response.status_code, sorted(payload.keys())
+        )
+        return payload
 
     def _parse_result(self, payload: dict[str, Any]) -> DeepSearchResult:
         run_result = payload.get("run_result") or {}
