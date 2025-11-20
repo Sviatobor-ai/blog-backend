@@ -141,21 +141,50 @@ class EnhancementWriter:
 
     def _parse_payload(self, text: str) -> dict[str, Any]:
         cleaned = text.strip()
+
+        # Handle optional fenced code blocks like ```json ... ``` or ``` ... ```
         if cleaned.startswith("```"):
-            cleaned = cleaned.removeprefix("```").strip()
-            if "\n" in cleaned:
-                cleaned = "\n".join(cleaned.splitlines()[1:])
+            # Remove opening fence
+            cleaned = cleaned[len("```"):].lstrip()
+
+            # Split into lines to optionally drop a language tag
+            lines = cleaned.splitlines()
+
+            if lines:
+                first = lines[0].strip()
+                # Common language tags that models may use after ```
+                language_tags = {
+                    "json",
+                    "JSON",
+                    "js",
+                    "javascript",
+                    "ts",
+                    "typescript",
+                    "python",
+                    "py",
+                }
+                # If the first line is just a language tag, drop it.
+                if first in language_tags:
+                    lines = lines[1:]
+
+            cleaned = "\n".join(lines).strip()
+
+            # Remove trailing fence if present
             if cleaned.endswith("```"):
                 cleaned = cleaned[: -len("```")].strip()
+
         try:
             payload = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise EnhancementWriterError(f"Assistant returned invalid JSON: {exc}") from exc
+
         if "added_sections" not in payload or "added_faq" not in payload:
             raise EnhancementWriterError("Assistant response missing required keys")
+
         sections = payload["added_sections"]
         if not isinstance(sections, list):
             raise EnhancementWriterError("added_sections must be a list")
+
         cleaned_sections: list[dict[str, str]] = []
         for item in sections:
             if not isinstance(item, dict):
@@ -165,11 +194,14 @@ class EnhancementWriter:
             if not title or not body:
                 continue
             cleaned_sections.append({"title": title, "body": body})
+
         if not cleaned_sections:
             raise EnhancementWriterError("Assistant response did not include any valid sections")
+
         faq = payload["added_faq"]
         if not isinstance(faq, dict):
             raise EnhancementWriterError("added_faq must be an object")
+
         question = str(faq.get("question") or "").strip()
         answer = str(faq.get("answer") or "").strip()
         if not question or not answer:
