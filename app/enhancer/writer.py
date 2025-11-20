@@ -37,7 +37,7 @@ class EnhancementResponse:
 
 
 class EnhancementWriter:
-    """Generate fresh sections and FAQ entry via the OpenAI Responses API."""
+    """Generate fresh sections and FAQ entry via the OpenAI Chat Completions API."""
 
     def __init__(self, *, api_key: str | None, model: str = "gpt-4.1-mini", timeout_s: float = 120.0) -> None:
         if not api_key:
@@ -53,9 +53,9 @@ class EnhancementWriter:
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(request)
         try:
-            response = self._client.responses.create(
+            response = self._client.chat.completions.create(
                 model=self._model,
-                input=[
+                messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
@@ -106,25 +106,49 @@ class EnhancementWriter:
         )
 
     def _extract_text(self, response: Any) -> str:
-        output_text = getattr(response, "output_text", None)
-        if output_text:
-            return str(output_text)
-        output = getattr(response, "output", None) or []
-        if isinstance(output, list):
-            for item in output:
-                content = getattr(item, "content", None)
-                if isinstance(content, list):
-                    for part in content:
-                        text = getattr(part, "text", None)
-                        if text and getattr(text, "value", None):
-                            return str(text.value)
-                elif getattr(item, "text", None):
-                    return str(item.text)
+        choices = getattr(response, "choices", None) or []
+        for choice in choices:
+            message = getattr(choice, "message", None)
+            if not message:
+                continue
+            content = getattr(message, "content", None)
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+            if isinstance(content, list):
+                for part in content:
+                    text_value = self._extract_text_value(part)
+                    if text_value:
+                        return text_value
         raise EnhancementWriterError("Assistant response did not contain text content")
 
+    @staticmethod
+    def _extract_text_value(part: Any) -> str | None:
+        """Return textual content from a message part if present."""
+
+        if isinstance(part, dict):
+            if part.get("type") == "text":
+                text = part.get("text")
+                if isinstance(text, dict) and text.get("value"):
+                    return str(text["value"]).strip()
+            if part.get("text") and isinstance(part.get("text"), str):
+                return str(part["text"]).strip()
+        text_attr = getattr(part, "text", None)
+        if isinstance(text_attr, str) and text_attr.strip():
+            return text_attr.strip()
+        if hasattr(text_attr, "value") and str(text_attr.value).strip():
+            return str(text_attr.value).strip()
+        return None
+
     def _parse_payload(self, text: str) -> dict[str, Any]:
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.removeprefix("```").strip()
+            if "\n" in cleaned:
+                cleaned = "\n".join(cleaned.splitlines()[1:])
+            if cleaned.endswith("```"):
+                cleaned = cleaned[: -len("```")].strip()
         try:
-            payload = json.loads(text)
+            payload = json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise EnhancementWriterError(f"Assistant returned invalid JSON: {exc}") from exc
         if "added_sections" not in payload or "added_faq" not in payload:
@@ -141,7 +165,18 @@ class EnhancementWriter:
             if not title or not body:
                 continue
             cleaned_sections.append({"title": title, "body": body})
+        if not cleaned_sections:
+            raise EnhancementWriterError("Assistant response did not include any valid sections")
+        faq = payload["added_faq"]
+        if not isinstance(faq, dict):
+            raise EnhancementWriterError("added_faq must be an object")
+        question = str(faq.get("question") or "").strip()
+        answer = str(faq.get("answer") or "").strip()
+        if not question or not answer:
+            raise EnhancementWriterError("added_faq must include question and answer")
+
         payload["added_sections"] = cleaned_sections
+        payload["added_faq"] = {"question": question, "answer": answer}
         return payload
 
 
