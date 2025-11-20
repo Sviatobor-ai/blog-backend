@@ -8,6 +8,7 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "dev")
 os.environ.setdefault("OPENAI_API_KEY", "test-openai")
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_enhancer_writer.db")
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -19,15 +20,15 @@ from app.enhancer.writer import EnhancementRequest, EnhancementWriter  # noqa: E
 
 @pytest.fixture(autouse=True)
 def fake_openai(monkeypatch):
-    class FakeResponses:
+    class FakeChatCompletions:
         def __init__(self, payload: str):
             self._payload = payload
 
         def create(self, **kwargs):  # pragma: no cover - indirect assertions below
-            messages = kwargs.get("input") or []
+            messages = kwargs.get("messages") or []
             serialized = "\n".join(item.get("content", "") for item in messages if isinstance(item, dict))
             assert "bez frazy 'Dopelniono'" in serialized
-            return SimpleNamespace(output_text=self._payload)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self._payload))])
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
@@ -40,7 +41,7 @@ def fake_openai(monkeypatch):
                     "added_faq": {"question": "Czy praktykować rano?", "answer": "Tak"},
                 }
             )
-            self.responses = FakeResponses(self._payload)
+            self.chat = SimpleNamespace(completions=FakeChatCompletions(self._payload))
 
     monkeypatch.setattr(writer_module, "OpenAI", FakeClient)
     yield
