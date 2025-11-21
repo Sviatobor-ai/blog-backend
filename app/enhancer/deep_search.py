@@ -269,14 +269,14 @@ class ParallelDeepSearchClient:
         sources: List[DeepSearchSource] = []
         seen: set[str] = set()
         for raw in items:
-            if len(sources) >= 6:
+            if len(sources) >= 5:
                 break
             if not isinstance(raw, dict):
                 continue
             citations = raw.get("citations")
             if isinstance(citations, list) and citations:
                 for citation in citations:
-                    if len(sources) >= 6:
+                    if len(sources) >= 5:
                         break
                     source = self._build_source(citation)
                     if source and source.url not in seen:
