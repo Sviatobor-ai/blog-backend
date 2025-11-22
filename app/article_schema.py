@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-ARTICLE_MIN_LEAD = 180
+ARTICLE_MIN_LEAD = 250
 ARTICLE_MIN_SECTIONS = 4
 ARTICLE_MIN_CITATIONS = 1
 ARTICLE_FAQ_MIN = 2

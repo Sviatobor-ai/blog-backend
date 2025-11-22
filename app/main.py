@@ -210,7 +210,7 @@ def _ensure_sections(sections: List[dict]) -> List[dict]:
 
 def _ensure_citations(citations: List[str] | None, canonical: str) -> List[str]:
     items = [item for item in (citations or []) if isinstance(item, str) and item.startswith("http")]
-    base = canonical if canonical.startswith("http") else "https://joga.yoga"
+    base = canonical if canonical.startswith("http") else "https://wiedza.joga.yoga"
     while len(items) < 2:
         suffix = "" if not items else f"?ref={len(items) + 1}"
         items.append(f"{base}{suffix}")

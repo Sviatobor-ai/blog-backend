@@ -147,7 +147,7 @@ def _compose_generation_brief(
         "Tworzysz długą, empatyczną i ekspercką publikację dla bloga joga.yoga.",
         "Budujesz narrację z wyraźnymi akapitami, przykładami oraz wskazówkami do wdrożenia w codzienności.",
         "Dbasz o logiczne przejścia między sekcjami i konsekwentny ton głosu marki.",
-        "Lead musi liczyć co najmniej trzy akapity, a każda sekcja rozwija temat w sposób pogłębiony, a nie skrótowy.",
+        "Lead musi liczyć co najmniej dwie akapity, a każda sekcja rozwija temat w sposób pogłębiony, a nie skrótowy.",
         "FAQ zawiera 2-4 pytania i wyczerpujące odpowiedzi wynikające z treści artykułu.",
     ]
     if rubric:
