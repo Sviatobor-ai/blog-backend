@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -21,23 +22,45 @@ _ASR_REQUEST_TIMEOUT = 15.0
 # Single-operation budgets (seconds) to keep transcript/ASR calls bounded.
 _TRANSCRIPT_TOTAL_BUDGET = 90.0
 _ASR_TOTAL_BUDGET = 180.0
-MIN_TRANSCRIPT_CHARS = 200
+MIN_TRANSCRIPT_CHARS = int(os.getenv("MIN_TRANSCRIPT_CHARS", "200"))
 
 
 class TranscriptResult(BaseModel):
-    content: str
+    text: str
     lang: str | None = None
     available_langs: list[str] = Field(default_factory=list)
+    content_chars: int = 0
+
+    @property
+    def content(self) -> str:  # pragma: no cover - compatibility shim
+        return self.text
 
 
 class SupadataTranscriptError(Exception):
     """Raised when SupaData cannot return a transcript."""
 
-    def __init__(self, *, status_code: int, video_url: str, error_body: Any | None = None) -> None:
-        super().__init__(f"Supadata transcript error status={status_code}")
+    def __init__(
+        self,
+        *,
+        status_code: int | None,
+        video_url: str,
+        error_body: Any | None = None,
+        message: str | None = None,
+    ) -> None:
+        label = f"Supadata transcript error status={status_code}" if status_code else "Supadata transcript error"
+        super().__init__(message or label)
         self.status_code = status_code
         self.video_url = video_url
         self.error_body = error_body
+
+
+class SupadataTranscriptTooShortError(SupadataTranscriptError):
+    """Raised when SupaData returns a transcript below the minimum length."""
+
+    def __init__(self, *, video_url: str, content_chars: int, threshold: int) -> None:
+        super().__init__(status_code=422, video_url=video_url, message="Transcript too short")
+        self.content_chars = content_chars
+        self.threshold = threshold
 
 
 @dataclass
@@ -191,6 +214,8 @@ class SupaDataClient:
         lang: str | None = None,
         mode: str = "auto",
         text: bool = True,
+        poll_interval: float = 5.0,
+        poll_timeout: float = 300.0,
     ) -> TranscriptResult:
         """Fetch a transcript for the given URL using the universal endpoint."""
 
@@ -211,11 +236,38 @@ class SupaDataClient:
                 timeout=_make_timeout(_TRANSCRIPT_REQUEST_TIMEOUT),
             )
         except httpx.TimeoutException as exc:
-            logger.warning("supadata.transcript.error video_url=%s err=%s", url, exc)
+            logger.warning("event=supadata.transcript.error video_url=%s err=%s", url, exc)
             raise SupadataTranscriptError(status_code=503, video_url=url, error_body=str(exc)) from exc
         except httpx.HTTPError as exc:
-            logger.warning("supadata.transcript.error video_url=%s err=%s", url, exc)
+            logger.warning("event=supadata.transcript.error video_url=%s err=%s", url, exc)
             raise SupadataTranscriptError(status_code=502, video_url=url, error_body=str(exc)) from exc
+
+        if response.status_code == httpx.codes.ACCEPTED:
+            payload = _safe_json(response)
+            job_id = None
+            if isinstance(payload, dict):
+                job_id = payload.get("jobId") or payload.get("job_id") or payload.get("id")
+            if not job_id:
+                logger.warning(
+                    "event=supadata.transcript.error video_url=%s status_code=%s err=%s",
+                    url,
+                    response.status_code,
+                    payload,
+                )
+                raise SupadataTranscriptError(
+                    status_code=response.status_code,
+                    video_url=url,
+                    error_body=payload,
+                )
+            logger.info(
+                "event=supadata.transcript.job-start video_url=%s job_id=%s lang=%s mode=%s",
+                url,
+                job_id,
+                lang,
+                mode,
+            )
+            payload = self._poll_transcript_job(job_id=job_id, url=url, poll_interval=poll_interval, poll_timeout=poll_timeout)
+            return self._build_transcript_result(url=url, payload=payload)
 
         if response.status_code // 100 != 2:
             logger.warning(
@@ -230,33 +282,7 @@ class SupaDataClient:
             )
 
         payload = _safe_json(response) or {}
-        content = ""
-        lang_value: str | None = None
-        available_langs: list[str] = []
-        if isinstance(payload, dict):
-            raw_content = payload.get("content")
-            if isinstance(raw_content, str):
-                content = raw_content
-            lang_value = payload.get("lang") if isinstance(payload.get("lang"), str) else None
-            raw_available_langs = payload.get("availableLangs")
-            if isinstance(raw_available_langs, list):
-                available_langs = [str(item) for item in raw_available_langs if str(item).strip()]
-        if not content:
-            content = _normalise_text(payload if payload is not None else response.text) or ""
-
-        result = TranscriptResult(
-            content=content,
-            lang=lang_value,
-            available_langs=available_langs,
-        )
-        logger.info(
-            "event=supadata.transcript.success video_url=%s lang=%s available_langs_count=%s content_chars=%s",
-            url,
-            result.lang,
-            len(result.available_langs),
-            len(result.content),
-        )
-        return result
+        return self._build_transcript_result(url=url, payload=payload)
 
     def get_transcript_raw(self, url: str, *, lang: str | None = None, min_chars: int = 0) -> Optional[str]:
         """Fetch transcript text without timestamps when available."""
@@ -265,7 +291,7 @@ class SupaDataClient:
             result = self.get_transcript(url=url, lang=lang, mode="auto", text=True)
         except SupadataTranscriptError:
             return None
-        content = (result.content or "").strip()
+        content = (result.text or "").strip()
         if min_chars and len(content) < min_chars:
             logger.info(
                 "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
@@ -328,6 +354,117 @@ class SupaDataClient:
             if text:
                 return text
         return None
+
+    def _poll_transcript_job(
+        self,
+        *,
+        job_id: str,
+        url: str,
+        poll_interval: float,
+        poll_timeout: float,
+    ) -> dict[str, Any]:
+        """Poll transcript job endpoint until completion or timeout."""
+
+        deadline = time.monotonic() + max(1.0, poll_timeout)
+        poll_interval = max(0.1, poll_interval)
+        job_path = f"/transcript/{job_id}"
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning(
+                    "event=supadata.transcript.timeout video_url=%s job_id=%s timeout=%s",
+                    url,
+                    job_id,
+                    poll_timeout,
+                )
+                raise SupadataTranscriptError(
+                    status_code=504,
+                    video_url=url,
+                    error_body=f"transcript polling timed out after {poll_timeout}s",
+                )
+
+            try:
+                response = self._client.get(job_path, timeout=_make_timeout(min(_TRANSCRIPT_REQUEST_TIMEOUT, remaining)))
+            except httpx.TimeoutException as exc:
+                logger.warning("event=supadata.transcript.error video_url=%s err=%s", url, exc)
+                raise SupadataTranscriptError(status_code=503, video_url=url, error_body=str(exc)) from exc
+            except httpx.HTTPError as exc:
+                logger.warning("event=supadata.transcript.error video_url=%s err=%s", url, exc)
+                raise SupadataTranscriptError(status_code=502, video_url=url, error_body=str(exc)) from exc
+
+            payload = _safe_json(response)
+            status = _extract_status(payload)
+            if status:
+                lowered = status.lower()
+                if lowered in {"queued", "active", "processing"}:
+                    elapsed = poll_timeout - remaining
+                    logger.info(
+                        "event=supadata.transcript.job-status video_url=%s job_id=%s status=%s elapsed=%.1f",
+                        url,
+                        job_id,
+                        status,
+                        elapsed,
+                    )
+                elif lowered == "completed":
+                    return payload or {}
+                elif lowered == "failed":
+                    logger.warning(
+                        "event=supadata.transcript.error video_url=%s status_code=%s err=%s",
+                        url,
+                        response.status_code,
+                        payload,
+                    )
+                    raise SupadataTranscriptError(status_code=response.status_code, video_url=url, error_body=payload)
+
+            # Content may arrive without explicit status
+            if isinstance(payload, dict) and payload.get("content"):
+                return payload
+
+            sleep_for = min(poll_interval, max(0.0, remaining))
+            time.sleep(sleep_for)
+
+    def _build_transcript_result(self, *, url: str, payload: dict[str, Any] | None) -> TranscriptResult:
+        content = ""
+        lang_value: str | None = None
+        available_langs: list[str] = []
+
+        if isinstance(payload, dict):
+            raw_content = payload.get("content")
+            if raw_content is not None:
+                content = _normalise_content(raw_content)
+            lang_value = payload.get("lang") if isinstance(payload.get("lang"), str) else None
+            raw_available_langs = payload.get("availableLangs")
+            if isinstance(raw_available_langs, list):
+                available_langs = [str(item) for item in raw_available_langs if str(item).strip()]
+
+        if not content:
+            content = _normalise_text(payload) or ""
+
+        text = (content or "").strip()
+        content_chars = len(text)
+        if content_chars < MIN_TRANSCRIPT_CHARS:
+            logger.info(
+                "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
+                url,
+                content_chars,
+                MIN_TRANSCRIPT_CHARS,
+            )
+            raise SupadataTranscriptTooShortError(video_url=url, content_chars=content_chars, threshold=MIN_TRANSCRIPT_CHARS)
+
+        result = TranscriptResult(
+            text=text,
+            lang=lang_value,
+            available_langs=available_langs,
+            content_chars=content_chars,
+        )
+        logger.info(
+            "event=supadata.transcript.success video_url=%s lang=%s available_langs_count=%s content_chars=%s",
+            url,
+            result.lang,
+            len(result.available_langs),
+            result.content_chars,
+        )
+        return result
 
     def _poll_asr_job(self, path_template: str, job_id: str, deadline: float) -> Optional[str]:
         """Poll SupaData job endpoint until finished or timeout."""
@@ -464,6 +601,20 @@ def _normalise_text(data: Any) -> Optional[str]:
     if parts:
         return " ".join(parts)
     return None
+
+
+def _normalise_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        pieces = []
+        for item in content:
+            if isinstance(item, dict) and "text" in item:
+                pieces.append(str(item.get("text") or "").strip())
+            elif isinstance(item, str):
+                pieces.append(item.strip())
+        return "\n".join([piece for piece in pieces if piece])
+    return _normalise_text(content) or ""
 
 
 def _extract_job_id(data: Any) -> Optional[str]:

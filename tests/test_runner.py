@@ -65,7 +65,7 @@ def test_runner_marks_skipped_when_no_text_available():
 
     class StubSupaData:
         def get_transcript(self, *, url: str, mode: str = "auto", text: bool = True):  # pragma: no cover - interface stub
-            return TranscriptResult(content="", lang=None, available_langs=[])
+            return TranscriptResult(text="", lang=None, available_langs=[], content_chars=0)
 
     stub = StubSupaData()
     runner = GenRunner(session_factory=SessionLocal, supadata_factory=lambda: stub)

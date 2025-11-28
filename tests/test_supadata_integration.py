@@ -13,7 +13,12 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app.integrations.supadata import SupaDataClient, SupadataTranscriptError  # noqa: E402
+from app.integrations.supadata import (  # noqa: E402
+    MIN_TRANSCRIPT_CHARS,
+    SupaDataClient,
+    SupadataTranscriptError,
+    SupadataTranscriptTooShortError,
+)
 
 
 def _make_client(handler: httpx.MockTransport) -> SupaDataClient:
@@ -102,7 +107,7 @@ def test_get_transcript_parses_content_variants():
         return httpx.Response(
             200,
             json={
-                "content": " Hello ",
+                "content": " Hello " + "!" * MIN_TRANSCRIPT_CHARS,
                 "lang": "en",
                 "availableLangs": ["en", "pl"],
             },
@@ -111,9 +116,41 @@ def test_get_transcript_parses_content_variants():
     client = _make_client(httpx.MockTransport(handler))
 
     result = client.get_transcript(url="https://youtube.com/watch?v=abc", lang="pl", mode="auto", text=True)
-    assert result.content.strip() == "Hello"
+    assert result.text.startswith("Hello")
     assert result.lang == "en"
     assert result.available_langs == ["en", "pl"]
+
+
+def test_get_transcript_handles_async_polling():
+    poll_calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/transcript") and request.method == "GET":
+            return httpx.Response(202, json={"jobId": "abc"})
+        if request.url.path.endswith("/transcript/abc"):
+            poll_calls["count"] += 1
+            if poll_calls["count"] < 3:
+                return httpx.Response(200, json={"status": "queued"})
+            return httpx.Response(
+                200,
+                json={
+                    "status": "completed",
+                    "content": [
+                        {"text": "Hello"},
+                        {"text": "world"},
+                        {"text": "!" * MIN_TRANSCRIPT_CHARS},
+                    ],
+                },
+            )
+        raise AssertionError("unexpected request")
+
+    client = _make_client(httpx.MockTransport(handler))
+
+    result = client.get_transcript(url="https://youtube.com/watch?v=poll")
+
+    assert poll_calls["count"] == 3
+    assert result.text.startswith("Hello")
+    assert result.content_chars >= MIN_TRANSCRIPT_CHARS
 
 
 def test_get_transcript_raises_on_error_response(caplog):
@@ -128,6 +165,32 @@ def test_get_transcript_raises_on_error_response(caplog):
 
     assert exc.value.status_code == 404
     assert "supadata.transcript.error" in caplog.text
+
+
+def test_get_transcript_raises_on_too_short():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"content": "too short"})
+
+    client = _make_client(httpx.MockTransport(handler))
+
+    with pytest.raises(SupadataTranscriptTooShortError):
+        client.get_transcript(url="https://youtube.com/watch?v=short")
+
+
+def test_get_transcript_times_out_polling():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/transcript"):
+            return httpx.Response(202, json={"jobId": "slow"})
+        return httpx.Response(200, json={"status": "queued"})
+
+    client = _make_client(httpx.MockTransport(handler))
+
+    with pytest.raises(SupadataTranscriptError) as exc:
+        client.get_transcript(
+            url="https://youtube.com/watch?v=slow", poll_interval=0.01, poll_timeout=0.05
+        )
+
+    assert exc.value.status_code == 504
 
 
 def test_asr_transcribe_polls_until_ready():
