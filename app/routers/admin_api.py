@@ -16,13 +16,7 @@ from ..integrations.supadata import SDVideo, SupaDataClient
 from ..models import GenJob
 from ..schemas.generate_now import GenerateNowRequest, GenerateNowResponse
 from ..schemas.queue import PlanQueueRequest, PlanQueueResponse, QueueItem, QueueSnapshotResponse
-from ..schemas_admin import (
-    AdminSearchRequest,
-    AdminSearchResponse,
-    AdminSearchVideo,
-    ProbeTranscriptsRequest,
-    ProbeTranscriptsResponse,
-)
+from ..schemas_admin import AdminSearchRequest, AdminSearchResponse, AdminSearchVideo
 from ..services.runner import get_runner, process_url_once
 
 logger = logging.getLogger(__name__)
@@ -43,7 +37,6 @@ def _video_to_dict(video: SDVideo) -> AdminSearchVideo:
         duration_seconds=video.duration_seconds,
         published_at=video.published_at,
         description_snippet=video.description_snippet,
-        has_transcript=video.has_transcript,
     )
 
 
@@ -64,19 +57,6 @@ def search_videos(
     )
     items = [_video_to_dict(video) for video in videos]
     return AdminSearchResponse(items=items)
-
-
-@admin_api_router.post("/probe_transcripts", response_model=ProbeTranscriptsResponse)
-def probe_transcripts(
-    payload: ProbeTranscriptsRequest,
-    _: object = Depends(require_token),
-    supadata: SupaDataClient = Depends(get_supadata_client),
-) -> ProbeTranscriptsResponse:
-    """Return lightweight transcript availability info without fetching full text."""
-
-    urls = [str(url) for url in payload.urls]
-    has_map = supadata.probe_transcripts(urls)
-    return ProbeTranscriptsResponse(has=has_map)
 
 
 @admin_api_router.post(

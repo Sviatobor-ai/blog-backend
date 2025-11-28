@@ -7,7 +7,7 @@ import re
 import json
 from functools import lru_cache
 from math import ceil
-from typing import Iterable, List
+from typing import Callable, Iterable, List
 import os
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -22,6 +22,8 @@ from sqlalchemy.orm import Session
 from .article_schema import ARTICLE_DOCUMENT_SCHEMA
 from .config import DATABASE_URL, get_openai_settings, get_supadata_key
 from .db import SessionLocal, engine
+from .dependencies import get_supadata_client, shutdown_supadata_client
+from .integrations.supadata import SupaDataClient
 from .models import Post, Rubric
 from .routers.admin_api import admin_api_router
 from .routers.admin_page import admin_page_router
@@ -36,13 +38,14 @@ from .services import (
     ArticleGenerationError,
     OpenAIAssistantArticleGenerator,
     build_canonical_for_slug,
+    get_transcript_generator,
 )
 from .services.article_publication import (
     persist_article_document,
     prepare_document_for_publication,
 )
 from .services.article_utils import compose_body_mdx, extract_sections_from_body
-from .dependencies import shutdown_supadata_client
+from .services.video_pipeline import generate_article_from_raw
 
 
 logging.basicConfig(level=logging.INFO)
@@ -105,6 +108,10 @@ def get_db() -> Iterable[Session]:
         yield db
     finally:
         db.close()
+
+
+def _supadata_client_provider() -> Callable[[], SupaDataClient]:
+    return get_supadata_client
 
 @app.get("/health/openai")
 def health_openai():
@@ -419,7 +426,32 @@ def create_article(
     payload: ArticleCreateRequest,
     db: Session = Depends(get_db),
     generator: OpenAIAssistantArticleGenerator = Depends(get_generator),
+    transcript_generator=Depends(get_transcript_generator),
+    supadata_provider: Callable[[], SupaDataClient] = Depends(_supadata_client_provider),
 ):
+    if payload.video_url:
+        if not transcript_generator.is_configured:
+            raise HTTPException(status_code=503, detail="Transcript generator is not configured")
+        try:
+            supadata = supadata_provider()
+            transcript = supadata.get_transcript_raw(str(payload.video_url))
+        except Exception as exc:  # pragma: no cover - defensive guard for provider errors
+            logger.warning("transcript-fetch failed url=%s err=%s", payload.video_url, exc)
+            raise HTTPException(status_code=422, detail="Transcript not available for the provided video URL") from exc
+        if not transcript:
+            raise HTTPException(status_code=422, detail="Transcript not available for the provided video URL")
+        try:
+            post = generate_article_from_raw(
+                db,
+                raw_text=transcript,
+                source_url=str(payload.video_url),
+                generator=transcript_generator,
+            )
+        except ArticleGenerationError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        document = document_from_post(post)
+        return ArticlePublishResponse(slug=post.slug, id=post.id, post=document)
+
     if not generator.is_configured:
         raise HTTPException(status_code=503, detail="OpenAI API key is not configured")
     rubric_name = "Zdrowie i joga"
