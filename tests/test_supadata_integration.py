@@ -213,29 +213,3 @@ def test_asr_transcribe_falls_back_to_legacy_route():
     assert text == "Legacy ASR"
     assert sequence[0].endswith("/transcript")
     assert any(item.startswith("POST:") and item.endswith("/youtube/asr") for item in sequence)
-
-
-def test_probe_transcripts_maps_availability_flags():
-    def handler(request: httpx.Request) -> httpx.Response:
-        url_param = request.url.params.get("url")
-        if url_param.endswith("has"):
-            return httpx.Response(200, json={"has_transcript": True})
-        if url_param.endswith("missing"):
-            return httpx.Response(404)
-        return httpx.Response(200, json={"status": "processing"})
-
-    client = _make_client(httpx.MockTransport(handler))
-
-    results = client.probe_transcripts(
-        [
-            "https://youtube.com/watch?v=has",
-            "https://youtube.com/watch?v=missing",
-            "https://youtube.com/watch?v=unknown",
-        ]
-    )
-
-    assert results == {
-        "https://youtube.com/watch?v=has": True,
-        "https://youtube.com/watch?v=missing": False,
-        "https://youtube.com/watch?v=unknown": None,
-    }

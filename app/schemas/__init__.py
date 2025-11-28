@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Iterable, List, Literal
 
-from pydantic import BaseModel, Field, HttpUrl, constr, field_validator
+from pydantic import AnyHttpUrl, BaseModel, Field, HttpUrl, constr, field_validator
 
 from ..article_schema import (
     ARTICLE_FAQ_MAX,
@@ -121,6 +121,7 @@ class ArticleCreateRequest(BaseModel):
     rubric_code: str | None = Field(default=None, max_length=64)
     keywords: List[str] = Field(default_factory=list)
     guidance: str | None = Field(default=None, max_length=500)
+    video_url: AnyHttpUrl | None = None
 
     @field_validator("rubric_code")
     @classmethod
@@ -143,6 +144,13 @@ class ArticleCreateRequest(BaseModel):
             if text:
                 sanitized.append(text[:80])
         return sanitized[:6]
+
+    @field_validator("video_url", mode="before")
+    @classmethod
+    def ensure_single_video(cls, value):
+        if isinstance(value, (list, tuple)):
+            raise ValueError("Only one video URL is supported")
+        return value
 
 
 class ArticlePublishResponse(BaseModel):

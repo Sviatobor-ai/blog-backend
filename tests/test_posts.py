@@ -22,7 +22,9 @@ from app.main import (
     SUMMARY_TITLE_MAX_CHARS,
     app,
     get_generator,
+    _supadata_client_provider,
 )  # noqa: E402
+from app.services import get_transcript_generator  # noqa: E402
 from app.models import Post  # noqa: E402
 from app.schemas import ArticleDocument  # noqa: E402
 
@@ -217,6 +219,18 @@ class InvalidGenerator:
         return {"slug": 123}
 
 
+class FakeTranscriptGenerator:
+    is_configured = True
+
+    def generate_from_transcript(self, *, raw_text: str, source_url: str):
+        document = deepcopy(SAMPLE_DOCUMENT)
+        document["topic"] = "Transkrypcja do artykulu"
+        document["slug"] = "transkrypcja-do-artykulu"
+        document["article"] = dict(document["article"])
+        document["article"]["citations"] = [source_url]
+        return document
+
+
 def test_create_article_publishes_and_returns_document():
     _reset_database()
     app.dependency_overrides[get_generator] = lambda: FakeGenerator()
@@ -240,6 +254,80 @@ def test_create_article_publishes_and_returns_document():
     with SessionLocal() as session:
         stored = session.query(Post).filter(Post.slug == payload["slug"]).one()
         assert stored.payload["topic"] == "Regeneracja z jogą nidrą"
+
+
+def test_create_article_from_single_video_fetches_transcript():
+    _reset_database()
+
+    class StubSupadata:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def get_transcript_raw(self, url: str) -> str:
+            self.calls.append(url)
+            return "Transkrypcja testowa"
+
+    supadata = StubSupadata()
+    app.dependency_overrides[_supadata_client_provider] = lambda: (lambda: supadata)
+    app.dependency_overrides[get_transcript_generator] = lambda: FakeTranscriptGenerator()
+
+    response = client.post(
+        "/artykuly",
+        json={
+            "topic": "Temat video test",
+            "video_url": "https://youtube.com/watch?v=video123",
+        },
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["slug"] == "transkrypcja-do-artykulu"
+    assert payload["post"]["article"]["citations"][-1] == "https://youtube.com/watch?v=video123"
+    assert supadata.calls == ["https://youtube.com/watch?v=video123"]
+
+
+def test_create_article_from_video_returns_error_when_transcript_missing():
+    _reset_database()
+
+    class MissingTranscriptClient:
+        def get_transcript_raw(self, url: str):
+            return None
+
+    app.dependency_overrides[_supadata_client_provider] = lambda: (lambda: MissingTranscriptClient())
+    app.dependency_overrides[get_transcript_generator] = lambda: FakeTranscriptGenerator()
+
+    response = client.post(
+        "/artykuly",
+        json={
+            "topic": "Temat video test",
+            "video_url": "https://youtube.com/watch?v=missing",
+        },
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Transcript not available for the provided video URL"
+
+
+def test_create_article_rejects_multiple_video_urls():
+    _reset_database()
+
+    response = client.post(
+        "/artykuly",
+        json={
+            "topic": "Temat video test",
+            "video_url": [
+                "https://youtube.com/watch?v=one",
+                "https://youtube.com/watch?v=two",
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Only one video URL is supported" in response.text
 
 
 def test_list_articles_returns_summaries():

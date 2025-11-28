@@ -112,7 +112,6 @@ def test_admin_search_forwards_filters_and_maps_results() -> None:
                     duration_seconds=900,
                     published_at="2024-01-01T00:00:00Z",
                     description_snippet="desc",
-                    has_transcript=True,
                 ),
                 SDVideo(
                     video_id="secondary",
@@ -122,7 +121,6 @@ def test_admin_search_forwards_filters_and_maps_results() -> None:
                     duration_seconds=None,
                     published_at=None,
                     description_snippet=None,
-                    has_transcript=None,
                 ),
             ]
 
@@ -145,7 +143,6 @@ def test_admin_search_forwards_filters_and_maps_results() -> None:
     payload = response.json()
     assert len(payload["items"]) == 2
     assert payload["items"][0]["video_id"] == "valid"
-    assert payload["items"][0]["has_transcript"] is True
     assert payload["items"][1]["video_id"] == "secondary"
 
     assert len(stub.calls) == 1

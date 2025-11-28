@@ -17,8 +17,6 @@ _CONNECT_TIMEOUT = 10.0
 _SEARCH_TIMEOUT = 10.0
 _TRANSCRIPT_REQUEST_TIMEOUT = 10.0
 _ASR_REQUEST_TIMEOUT = 15.0
-_PROBE_REQUEST_TIMEOUT = 5.0
-
 # Single-operation budgets (seconds) to keep transcript/ASR calls bounded.
 _TRANSCRIPT_TOTAL_BUDGET = 90.0
 _ASR_TOTAL_BUDGET = 180.0
@@ -35,7 +33,6 @@ class SDVideo:
     duration_seconds: Optional[int]
     published_at: Optional[str]
     description_snippet: Optional[str]
-    has_transcript: Optional[bool]
 
 
 class SupaDataClient:
@@ -150,8 +147,6 @@ class SupaDataClient:
                 or item.get("description")
                 or item.get("snippet", {}).get("description")
             )
-            has_transcript_raw = item.get("has_transcript")
-            has_transcript = _normalise_bool(has_transcript_raw)
             published_at = (
                 item.get("published_at")
                 or item.get("publishedAt")
@@ -166,12 +161,11 @@ class SupaDataClient:
                     duration_seconds=duration_seconds,
                     published_at=str(published_at) if published_at else None,
                     description_snippet=str(description) if description else None,
-                    has_transcript=has_transcript,
                 )
             )
         return videos
 
-    # --- 2) PROBE/GET TRANSCRIPT ---
+    # --- 2) GET TRANSCRIPT ---
     def get_transcript_raw(self, url: str) -> Optional[str]:
         """Fetch transcript text without timestamps when available."""
 
@@ -253,49 +247,6 @@ class SupaDataClient:
             if text:
                 return text
         return None
-
-    def probe_transcripts(self, urls: Iterable[str]) -> dict[str, Optional[bool]]:
-        """Return lightweight transcript availability flags for provided URLs."""
-
-        results: dict[str, Optional[bool]] = {}
-        for url in urls:
-            if not url:
-                results[url] = None
-                continue
-            try:
-                response = self._client.get(
-                    "/transcript",
-                    params={"url": url, "text": "false"},
-                    timeout=_make_timeout(_PROBE_REQUEST_TIMEOUT),
-                )
-            except httpx.HTTPError as exc:
-                logger.warning("supadata-probe error url=%s err=%s", url, exc)
-                results[url] = None
-                continue
-            if response.status_code == httpx.codes.NOT_FOUND:
-                results[url] = False
-                continue
-            if response.status_code // 100 != 2:
-                logger.warning(
-                    "supadata-probe status=%s url=%s",
-                    response.status_code,
-                    url,
-                )
-                results[url] = None
-                continue
-            payload = _safe_json(response)
-            if isinstance(payload, dict):
-                for key in ("has_transcript", "available", "hasTranscript"):
-                    if key in payload:
-                        normalised = _normalise_bool(payload[key])
-                        if normalised is not None:
-                            results[url] = normalised
-                            break
-                if url in results:
-                    continue
-            text = _normalise_text(payload if payload is not None else response.text)
-            results[url] = True if text else None
-        return results
 
     def _poll_asr_job(self, path_template: str, job_id: str, deadline: float) -> Optional[str]:
         """Poll SupaData job endpoint until finished or timeout."""
