@@ -7,6 +7,7 @@ from typing import Any, Dict
 os.environ.setdefault("APP_ENV", "dev")
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_posts.db")
 os.environ.setdefault("NEXT_PUBLIC_SITE_URL", "https://wiedza.joga.yoga")
+os.environ.setdefault("SUPADATA_KEY", "test-key")
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -24,7 +25,12 @@ from app.main import (
     get_generator,
     _supadata_client_provider,
 )  # noqa: E402
-from app.integrations.supadata import SupadataTranscriptError, TranscriptResult  # noqa: E402
+from app.integrations.supadata import (  # noqa: E402
+    MIN_TRANSCRIPT_CHARS,
+    SupadataTranscriptError,
+    SupadataTranscriptTooShortError,
+    TranscriptResult,
+)
 from app.services import get_transcript_generator  # noqa: E402
 from app.models import Post  # noqa: E402
 from app.schemas import ArticleDocument  # noqa: E402
@@ -266,7 +272,8 @@ def test_create_article_from_single_video_fetches_transcript():
 
         def get_transcript(self, *, url: str, lang: str | None = None, mode: str = "auto", text: bool = True):
             self.calls.append(url)
-            return TranscriptResult(content="Transkrypcja testowa " * 15, lang=lang, available_langs=["pl"])
+            payload = "Transkrypcja testowa " * 15
+            return TranscriptResult(text=payload, lang=lang, available_langs=["pl"], content_chars=len(payload))
 
     supadata = StubSupadata()
     app.dependency_overrides[_supadata_client_provider] = lambda: (lambda: supadata)
@@ -318,7 +325,7 @@ def test_create_article_from_video_rejects_short_transcript():
 
     class ShortTranscriptClient:
         def get_transcript(self, *, url: str, lang: str | None = None, mode: str = "auto", text: bool = True):
-            return TranscriptResult(content="too short", lang=lang, available_langs=["pl"])
+            raise SupadataTranscriptTooShortError(video_url=url, content_chars=9, threshold=MIN_TRANSCRIPT_CHARS)
 
     class TrackingGenerator(FakeTranscriptGenerator):
         def __init__(self) -> None:

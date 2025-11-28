@@ -9,7 +9,12 @@ from typing import Callable, Optional
 
 from sqlalchemy.orm import Session
 
-from ..integrations.supadata import MIN_TRANSCRIPT_CHARS, SupaDataClient
+from ..integrations.supadata import (
+    MIN_TRANSCRIPT_CHARS,
+    SupaDataClient,
+    SupadataTranscriptError,
+    SupadataTranscriptTooShortError,
+)
 from ..models import GenJob
 from ..services import ArticleGenerationError, get_transcript_generator
 from .video_pipeline import generate_article_from_raw
@@ -22,24 +27,6 @@ SupaFactory = Callable[[], SupaDataClient]
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _fetch_raw_text(supadata: SupaDataClient, url: str) -> Optional[str]:
-    try:
-        transcript = supadata.get_transcript(url=url, mode="auto", text=True)
-    except Exception as exc:
-        logger.warning("supadata.transcript.error url=%s err=%s", url, exc)
-        return None
-    text = (transcript.content or "").strip()
-    if len(text) < MIN_TRANSCRIPT_CHARS:
-        logger.info(
-            "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
-            url,
-            len(text),
-            MIN_TRANSCRIPT_CHARS,
-        )
-        return None
-    return text
 
 
 def _finalise_job(
@@ -68,7 +55,19 @@ def process_url_once(
     """Execute the transcript→article pipeline synchronously."""
 
     try:
-        text = _fetch_raw_text(supadata, url)
+        transcript = supadata.get_transcript(url=url, mode="auto", text=True)
+        text = (transcript.text or "").strip()
+    except SupadataTranscriptTooShortError as exc:
+        logger.warning(
+            "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
+            url,
+            exc.content_chars,
+            exc.threshold,
+        )
+        return False, None, "no transcript text"
+    except SupadataTranscriptError as exc:
+        logger.warning("pipeline supadata-fail url=%s err=%s", url, exc)
+        return False, None, str(exc)
     except Exception as exc:
         logger.warning("pipeline supadata-fail url=%s err=%s", url, exc)
         return False, None, str(exc)
@@ -185,11 +184,23 @@ class GenRunner:
 
         try:
             supadata = self._supadata_factory()
-            text = _fetch_raw_text(supadata, url)
+            transcript = supadata.get_transcript(url=url, mode="auto", text=True)
+            text = (transcript.text or "").strip()
+        except SupadataTranscriptTooShortError as exc:
+            _finalise_job(session, job, status="skipped", error="no transcript text")
+            logger.warning(
+                "gen-runner job-skip id=%s reason=no-text", job.id,
+            )
+            return
+        except SupadataTranscriptError as exc:
+            error_message = str(exc)[:500]
+            _finalise_job(session, job, status="failed", error=error_message)
+            logger.warning("gen-runner job-fail id=%s reason=transcript-error err=%s", job.id, exc)
+            return
         except Exception as exc:
             error_message = str(exc)[:500]
             _finalise_job(session, job, status="failed", error=error_message)
-            logger.warning("gen-runner job-fail id=%s reason=supadata err=%s", job.id, exc)
+            logger.exception("gen-runner job-fail id=%s reason=supadata-exception", job.id)
             return
         if not text:
             _finalise_job(session, job, status="skipped", error="no transcript text")
