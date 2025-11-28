@@ -13,7 +13,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from app.integrations.supadata import SupaDataClient  # noqa: E402
+from app.integrations.supadata import SupaDataClient, SupadataTranscriptError  # noqa: E402
 
 
 def _make_client(handler: httpx.MockTransport) -> SupaDataClient:
@@ -98,66 +98,36 @@ def test_get_transcript_parses_content_variants():
         assert request.method == "GET"
         assert request.url.path.endswith("/transcript")
         assert request.url.params["text"] == "true"
+        assert request.url.params["mode"] == "auto"
         return httpx.Response(
             200,
             json={
-                "data": {
-                    "segments": [
-                        {"content": "Hello"},
-                        {"text": "World"},
-                    ]
-                }
+                "content": " Hello ",
+                "lang": "en",
+                "availableLangs": ["en", "pl"],
             },
         )
 
     client = _make_client(httpx.MockTransport(handler))
 
-    text = client.get_transcript_raw("https://youtube.com/watch?v=abc")
-    assert text == "Hello World"
+    result = client.get_transcript(url="https://youtube.com/watch?v=abc", lang="pl", mode="auto", text=True)
+    assert result.content.strip() == "Hello"
+    assert result.lang == "en"
+    assert result.available_langs == ["en", "pl"]
 
 
-def test_get_transcript_falls_back_to_youtube_endpoint():
-    calls: list[str] = []
-
+def test_get_transcript_raises_on_error_response(caplog):
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request.url.path)
-        path = request.url.path
-        if request.method == "GET" and path.endswith("/youtube/transcript"):
-            return httpx.Response(200, json={"content": "Legacy transcript"})
-        if request.method == "GET" and path.endswith("/transcript"):
-            return httpx.Response(404)
-        raise AssertionError("unexpected path")
+        return httpx.Response(404, json={"error": "not found"})
 
     client = _make_client(httpx.MockTransport(handler))
 
-    text = client.get_transcript_raw("https://youtube.com/watch?v=fallback")
-    assert text == "Legacy transcript"
-    assert calls[0].endswith("/transcript")
-    assert calls[1].endswith("/youtube/transcript")
+    with caplog.at_level("WARNING"):
+        with pytest.raises(SupadataTranscriptError) as exc:
+            client.get_transcript(url="https://youtube.com/watch?v=missing")
 
-
-def test_get_transcript_returns_none_when_not_found():
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(404)
-
-    client = _make_client(httpx.MockTransport(handler))
-
-    text = client.get_transcript_raw("https://youtube.com/watch?v=missing")
-    assert text is None
-
-
-def test_asr_transcribe_returns_text_when_synchronous():
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST"
-        assert request.url.path.endswith("/transcript")
-        body = request.read()
-        assert b"mode" in body
-        return httpx.Response(200, json={"text": "Synchronous text"})
-
-    client = _make_client(httpx.MockTransport(handler))
-
-    text = client.asr_transcribe_raw("https://youtube.com/watch?v=sync")
-    assert text == "Synchronous text"
+    assert exc.value.status_code == 404
+    assert "supadata.transcript.error" in caplog.text
 
 
 def test_asr_transcribe_polls_until_ready():

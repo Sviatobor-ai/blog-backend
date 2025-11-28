@@ -14,6 +14,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.models import GenJob  # noqa: E402
+from app.integrations.supadata import TranscriptResult  # noqa: E402
 from app.services.runner import GenRunner  # noqa: E402
 
 
@@ -63,11 +64,8 @@ def test_runner_marks_skipped_when_no_text_available():
     job_id = _create_running_job()
 
     class StubSupaData:
-        def get_transcript_raw(self, url: str):  # pragma: no cover - interface stub
-            return None
-
-        def asr_transcribe_raw(self, url: str):  # pragma: no cover - interface stub
-            return None
+        def get_transcript(self, *, url: str, mode: str = "auto", text: bool = True):  # pragma: no cover - interface stub
+            return TranscriptResult(content="", lang=None, available_langs=[])
 
     stub = StubSupaData()
     runner = GenRunner(session_factory=SessionLocal, supadata_factory=lambda: stub)
@@ -78,6 +76,6 @@ def test_runner_marks_skipped_when_no_text_available():
         runner._process_job(session, job)
         session.refresh(job)
         assert job.status == "skipped"
-        assert job.error == "no transcript/asr text"
+        assert job.error == "no transcript text"
         assert job.finished_at is not None
         assert job.article_id is None

@@ -23,7 +23,11 @@ from .article_schema import ARTICLE_DOCUMENT_SCHEMA
 from .config import DATABASE_URL, get_openai_settings, get_supadata_key
 from .db import SessionLocal, engine
 from .dependencies import get_supadata_client, shutdown_supadata_client
-from .integrations.supadata import SupaDataClient
+from .integrations.supadata import (
+    MIN_TRANSCRIPT_CHARS,
+    SupaDataClient,
+    SupadataTranscriptError,
+)
 from .models import Post, Rubric
 from .routers.admin_api import admin_api_router
 from .routers.admin_page import admin_page_router
@@ -434,12 +438,42 @@ def create_article(
             raise HTTPException(status_code=503, detail="Transcript generator is not configured")
         try:
             supadata = supadata_provider()
-            transcript = supadata.get_transcript_raw(str(payload.video_url))
+            transcript_result = supadata.get_transcript(
+                url=str(payload.video_url),
+                lang="pl",
+                mode="auto",
+                text=True,
+            )
+        except SupadataTranscriptError as exc:
+            logger.warning(
+                "event=supadata.transcript.error video_url=%s status_code=%s err=%s",
+                payload.video_url,
+                exc.status_code,
+                exc.error_body,
+            )
+            raise HTTPException(
+                status_code=422,
+                detail="Transcript unavailable for this video. Please choose another video.",
+            ) from exc
         except Exception as exc:  # pragma: no cover - defensive guard for provider errors
             logger.warning("transcript-fetch failed url=%s err=%s", payload.video_url, exc)
-            raise HTTPException(status_code=422, detail="Transcript not available for the provided video URL") from exc
-        if not transcript:
-            raise HTTPException(status_code=422, detail="Transcript not available for the provided video URL")
+            raise HTTPException(
+                status_code=422,
+                detail="Transcript unavailable for this video. Please choose another video.",
+            ) from exc
+
+        transcript = (transcript_result.content or "").strip()
+        if len(transcript) < MIN_TRANSCRIPT_CHARS:
+            logger.info(
+                "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
+                payload.video_url,
+                len(transcript),
+                MIN_TRANSCRIPT_CHARS,
+            )
+            raise HTTPException(
+                status_code=422,
+                detail="Transcript unavailable or too short to generate a reliable article.",
+            )
         try:
             post = generate_article_from_raw(
                 db,

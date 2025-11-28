@@ -10,7 +10,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from .integrations.supadata import SupaDataClient
+from .integrations.supadata import MIN_TRANSCRIPT_CHARS, SupaDataClient, SupadataTranscriptError
 from .models import GenerationJob
 logger = logging.getLogger(__name__)
 
@@ -25,15 +25,28 @@ class GenerationJobStatus(str, Enum):
 
 
 def fetch_raw_text_from_youtube(client: SupaDataClient, url: str) -> tuple[Optional[str], Optional[str]]:
-    """Return transcript/ASR text and mode used for the provided URL."""
+    """Return transcript text for the provided URL when available."""
 
-    transcript = client.get_transcript_raw(url)
-    if transcript:
-        return transcript, "transcript"
-    asr = client.asr_transcribe_raw(url)
-    if asr:
-        return asr, "asr"
-    return None, None
+    try:
+        transcript = client.get_transcript(url=url, mode="auto", text=True)
+    except SupadataTranscriptError as exc:
+        logger.warning(
+            "event=supadata.transcript.error video_url=%s status_code=%s err=%s",
+            url,
+            exc.status_code,
+            exc.error_body,
+        )
+        return None, None
+    content = (transcript.content or "").strip()
+    if len(content) < MIN_TRANSCRIPT_CHARS:
+        logger.info(
+            "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
+            url,
+            len(content),
+            MIN_TRANSCRIPT_CHARS,
+        )
+        return None, None
+    return content, "transcript"
 
 
 def run_generation_job(

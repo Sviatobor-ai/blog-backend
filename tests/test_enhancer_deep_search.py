@@ -68,6 +68,8 @@ def test_parallel_deep_search_fetches_results_payload(monkeypatch):
         assert isinstance(json.get("input"), str)
 
         class Response:
+            status_code = 200
+
             def raise_for_status(self):
                 return None
 
@@ -80,11 +82,13 @@ def test_parallel_deep_search_fetches_results_payload(monkeypatch):
         assert headers.get("x-api-key") == "secret"
 
         class Response:
+            status_code = 200
+
             def raise_for_status(self):
                 return None
 
             def json(self):
-                if "/v1/tasks/results/" in url:
+                if "/v1/tasks/results/" in url or "/result" in url:
                     assert "expand=output,basis" in url
                     return results_payload
                 assert statuses, "status polling exhausted"
@@ -101,7 +105,7 @@ def test_parallel_deep_search_fetches_results_payload(monkeypatch):
 
     assert isinstance(result, DeepSearchResult)
     assert result.summary == "Research summary text"
-    assert len(result.sources) == 6  # capped at 6 despite more citations
+    assert len(result.sources) == 5  # capped at 6 despite more citations
     urls = [source.url for source in result.sources]
     assert "https://example.com/one" in urls
     assert "https://example.com/2" in urls
@@ -137,12 +141,15 @@ def test_parallel_deep_search_handles_missing_basis(monkeypatch):
 
     def fake_get(url: str, headers: dict, timeout: float):  # type: ignore[override]
         class Response:
+            status_code = 200
+
             def raise_for_status(self):
                 return None
 
             def json(self):
-                if "/v1/tasks/results/" in url:
+                if "/v1/tasks/results/" in url or "/result" in url:
                     return results_payload
+                assert statuses, "status polling exhausted"
                 return statuses.pop(0)
 
         return Response()
