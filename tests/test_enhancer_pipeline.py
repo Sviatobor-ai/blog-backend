@@ -42,7 +42,7 @@ def _sample_document() -> ArticleDocument:
         },
         "article": {
             "headline": "Joga na stres",
-            "lead": "L" * 200,
+            "lead": "L" * 260,
             "sections": [
                 {"title": "Sekcja 1", "body": section_body},
                 {"title": "Sekcja 2", "body": section_body},

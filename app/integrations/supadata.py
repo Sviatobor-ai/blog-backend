@@ -10,6 +10,7 @@ from typing import Any, Iterable, List, Optional
 
 import httpx
 from fastapi import HTTPException
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,23 @@ _ASR_REQUEST_TIMEOUT = 15.0
 # Single-operation budgets (seconds) to keep transcript/ASR calls bounded.
 _TRANSCRIPT_TOTAL_BUDGET = 90.0
 _ASR_TOTAL_BUDGET = 180.0
+MIN_TRANSCRIPT_CHARS = 200
+
+
+class TranscriptResult(BaseModel):
+    content: str
+    lang: str | None = None
+    available_langs: list[str] = Field(default_factory=list)
+
+
+class SupadataTranscriptError(Exception):
+    """Raised when SupaData cannot return a transcript."""
+
+    def __init__(self, *, status_code: int, video_url: str, error_body: Any | None = None) -> None:
+        super().__init__(f"Supadata transcript error status={status_code}")
+        self.status_code = status_code
+        self.video_url = video_url
+        self.error_body = error_body
 
 
 @dataclass
@@ -166,41 +184,104 @@ class SupaDataClient:
         return videos
 
     # --- 2) GET TRANSCRIPT ---
-    def get_transcript_raw(self, url: str) -> Optional[str]:
+    def get_transcript(
+        self,
+        *,
+        url: str,
+        lang: str | None = None,
+        mode: str = "auto",
+        text: bool = True,
+    ) -> TranscriptResult:
+        """Fetch a transcript for the given URL using the universal endpoint."""
+
+        logger.info(
+            "event=supadata.transcript.request video_url=%s lang=%s mode=%s",
+            url,
+            lang,
+            mode,
+        )
+        params: dict[str, Any] = {"url": url, "mode": mode, "text": str(text).lower()}
+        if lang:
+            params["lang"] = lang
+
+        try:
+            response = self._client.get(
+                "/transcript",
+                params=params,
+                timeout=_make_timeout(_TRANSCRIPT_REQUEST_TIMEOUT),
+            )
+        except httpx.TimeoutException as exc:
+            logger.warning("supadata.transcript.error video_url=%s err=%s", url, exc)
+            raise SupadataTranscriptError(status_code=503, video_url=url, error_body=str(exc)) from exc
+        except httpx.HTTPError as exc:
+            logger.warning("supadata.transcript.error video_url=%s err=%s", url, exc)
+            raise SupadataTranscriptError(status_code=502, video_url=url, error_body=str(exc)) from exc
+
+        if response.status_code // 100 != 2:
+            logger.warning(
+                "event=supadata.transcript.error video_url=%s status_code=%s",
+                url,
+                response.status_code,
+            )
+            raise SupadataTranscriptError(
+                status_code=response.status_code,
+                video_url=url,
+                error_body=_safe_json(response) or response.text,
+            )
+
+        payload = _safe_json(response) or {}
+        content = ""
+        lang_value: str | None = None
+        available_langs: list[str] = []
+        if isinstance(payload, dict):
+            raw_content = payload.get("content")
+            if isinstance(raw_content, str):
+                content = raw_content
+            lang_value = payload.get("lang") if isinstance(payload.get("lang"), str) else None
+            raw_available_langs = payload.get("availableLangs")
+            if isinstance(raw_available_langs, list):
+                available_langs = [str(item) for item in raw_available_langs if str(item).strip()]
+        if not content:
+            content = _normalise_text(payload if payload is not None else response.text) or ""
+
+        result = TranscriptResult(
+            content=content,
+            lang=lang_value,
+            available_langs=available_langs,
+        )
+        logger.info(
+            "event=supadata.transcript.success video_url=%s lang=%s available_langs_count=%s content_chars=%s",
+            url,
+            result.lang,
+            len(result.available_langs),
+            len(result.content),
+        )
+        return result
+
+    def get_transcript_raw(self, url: str, *, lang: str | None = None, min_chars: int = 0) -> Optional[str]:
         """Fetch transcript text without timestamps when available."""
 
-        deadline = time.monotonic() + self._transcript_budget
-        endpoints = (
-            ("/transcript", {"url": url, "text": "true"}),
-            ("/youtube/transcript", {"url": url, "text": "true"}),
-        )
-        for path, params in endpoints:
-            timeout_value = _remaining_timeout(deadline, _TRANSCRIPT_REQUEST_TIMEOUT)
-            if timeout_value is None:
-                break
-            try:
-                response = self._client.get(
-                    path,
-                    params=params,
-                    timeout=_make_timeout(timeout_value),
-                )
-            except httpx.HTTPError as exc:
-                logger.warning("supadata-transcript error url=%s err=%s", url, exc)
-                continue
-            if response.status_code == httpx.codes.NOT_FOUND:
-                continue
-            if response.status_code // 100 != 2:
-                logger.warning(
-                    "supadata-transcript status=%s url=%s",
-                    response.status_code,
-                    url,
-                )
-                continue
-            payload = _safe_json(response)
-            text = _normalise_text(payload if payload is not None else response.text)
-            if text:
-                return text
-        return None
+        try:
+            result = self.get_transcript(url=url, lang=lang, mode="auto", text=True)
+        except SupadataTranscriptError:
+            return None
+        content = (result.content or "").strip()
+        if min_chars and len(content) < min_chars:
+            logger.info(
+                "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
+                url,
+                len(content),
+                min_chars,
+            )
+            return None
+        if not content:
+            logger.info(
+                "event=supadata.transcript.too_short video_url=%s content_chars=0 threshold=%s",
+                url,
+                min_chars,
+            )
+            return None
+        return content
 
     # --- 3) ASR (AUDIO → TEXT) ---
     def asr_transcribe_raw(self, url: str) -> Optional[str]:

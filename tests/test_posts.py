@@ -24,6 +24,7 @@ from app.main import (
     get_generator,
     _supadata_client_provider,
 )  # noqa: E402
+from app.integrations.supadata import SupadataTranscriptError, TranscriptResult  # noqa: E402
 from app.services import get_transcript_generator  # noqa: E402
 from app.models import Post  # noqa: E402
 from app.schemas import ArticleDocument  # noqa: E402
@@ -263,9 +264,9 @@ def test_create_article_from_single_video_fetches_transcript():
         def __init__(self) -> None:
             self.calls: list[str] = []
 
-        def get_transcript_raw(self, url: str) -> str:
+        def get_transcript(self, *, url: str, lang: str | None = None, mode: str = "auto", text: bool = True):
             self.calls.append(url)
-            return "Transkrypcja testowa"
+            return TranscriptResult(content="Transkrypcja testowa " * 15, lang=lang, available_langs=["pl"])
 
     supadata = StubSupadata()
     app.dependency_overrides[_supadata_client_provider] = lambda: (lambda: supadata)
@@ -292,8 +293,8 @@ def test_create_article_from_video_returns_error_when_transcript_missing():
     _reset_database()
 
     class MissingTranscriptClient:
-        def get_transcript_raw(self, url: str):
-            return None
+        def get_transcript(self, *, url: str, lang: str | None = None, mode: str = "auto", text: bool = True):
+            raise SupadataTranscriptError(status_code=404, video_url=url, error_body={"error": "not found"})
 
     app.dependency_overrides[_supadata_client_provider] = lambda: (lambda: MissingTranscriptClient())
     app.dependency_overrides[get_transcript_generator] = lambda: FakeTranscriptGenerator()
@@ -309,7 +310,43 @@ def test_create_article_from_video_returns_error_when_transcript_missing():
     app.dependency_overrides.clear()
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "Transcript not available for the provided video URL"
+    assert response.json()["detail"] == "Transcript unavailable for this video. Please choose another video."
+
+
+def test_create_article_from_video_rejects_short_transcript():
+    _reset_database()
+
+    class ShortTranscriptClient:
+        def get_transcript(self, *, url: str, lang: str | None = None, mode: str = "auto", text: bool = True):
+            return TranscriptResult(content="too short", lang=lang, available_langs=["pl"])
+
+    class TrackingGenerator(FakeTranscriptGenerator):
+        def __init__(self) -> None:
+            super().__init__()
+            self.called = False
+
+        def generate_from_transcript(self, *, raw_text: str, source_url: str):
+            self.called = True
+            return super().generate_from_transcript(raw_text=raw_text, source_url=source_url)
+
+    generator = TrackingGenerator()
+
+    app.dependency_overrides[_supadata_client_provider] = lambda: (lambda: ShortTranscriptClient())
+    app.dependency_overrides[get_transcript_generator] = lambda: generator
+
+    response = client.post(
+        "/artykuly",
+        json={
+            "topic": "Temat video test",
+            "video_url": "https://youtube.com/watch?v=short",
+        },
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Transcript unavailable or too short to generate a reliable article."
+    assert generator.called is False
 
 
 def test_create_article_rejects_multiple_video_urls():

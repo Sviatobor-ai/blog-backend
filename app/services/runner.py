@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from sqlalchemy.orm import Session
 
-from ..integrations.supadata import SupaDataClient
+from ..integrations.supadata import MIN_TRANSCRIPT_CHARS, SupaDataClient
 from ..models import GenJob
 from ..services import ArticleGenerationError, get_transcript_generator
 from .video_pipeline import generate_article_from_raw
@@ -25,10 +25,21 @@ def _now() -> datetime:
 
 
 def _fetch_raw_text(supadata: SupaDataClient, url: str) -> Optional[str]:
-    text = supadata.get_transcript_raw(url)
-    if text:
-        return text
-    return supadata.asr_transcribe_raw(url)
+    try:
+        transcript = supadata.get_transcript(url=url, mode="auto", text=True)
+    except Exception as exc:
+        logger.warning("supadata.transcript.error url=%s err=%s", url, exc)
+        return None
+    text = (transcript.content or "").strip()
+    if len(text) < MIN_TRANSCRIPT_CHARS:
+        logger.info(
+            "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
+            url,
+            len(text),
+            MIN_TRANSCRIPT_CHARS,
+        )
+        return None
+    return text
 
 
 def _finalise_job(
@@ -62,7 +73,7 @@ def process_url_once(
         logger.warning("pipeline supadata-fail url=%s err=%s", url, exc)
         return False, None, str(exc)
     if not text:
-        return False, None, "no transcript/asr text"
+        return False, None, "no transcript text"
     generator = get_transcript_generator()
     try:
         post = generate_article_from_raw(
@@ -181,7 +192,7 @@ class GenRunner:
             logger.warning("gen-runner job-fail id=%s reason=supadata err=%s", job.id, exc)
             return
         if not text:
-            _finalise_job(session, job, status="skipped", error="no transcript/asr text")
+            _finalise_job(session, job, status="skipped", error="no transcript text")
             logger.warning("gen-runner job-skip id=%s reason=no-text", job.id)
             return
 
