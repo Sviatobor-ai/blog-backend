@@ -120,7 +120,7 @@ class ArticleCreateRequest(BaseModel):
     topic: str = Field(..., min_length=5, max_length=200)
     rubric_code: str | None = Field(default=None, max_length=64)
     keywords: List[str] = Field(default_factory=list)
-    guidance: str | None = Field(default=None, max_length=500)
+    guidance: str | None = Field(default=None, max_length=1500)
     video_url: AnyHttpUrl | None = None
 
     @field_validator("rubric_code")

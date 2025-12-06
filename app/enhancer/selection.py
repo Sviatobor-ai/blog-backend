@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..models import Post
 
 
-MIN_AGE_DAYS = 17
+MIN_AGE_DAYS = 15
 
 
 def select_articles_for_enhancement(db: Session, *, now: datetime) -> list[Post]:
