@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from sqlalchemy import String, cast, func, text
 from sqlalchemy.orm import Session
 
-from .article_schema import ARTICLE_DOCUMENT_SCHEMA
+from .article_schema import ARTICLE_DOCUMENT_SCHEMA, ARTICLE_FAQ_MAX, ARTICLE_FAQ_MIN
 from .config import DATABASE_URL, get_openai_settings, get_supadata_key
 from .db import SessionLocal, engine
 from .dependencies import get_supadata_client, shutdown_supadata_client
@@ -256,12 +256,12 @@ def _ensure_faq(faq_items: List[dict] | None) -> List[dict]:
         if question and answer:
             sanitized.append({"question": question, "answer": answer})
     defaults_iter = iter(DEFAULT_FAQ)
-    while len(sanitized) < 1:
+    while len(sanitized) < ARTICLE_FAQ_MIN:
         try:
             sanitized.append(dict(next(defaults_iter)))
         except StopIteration:
             sanitized.append(dict(DEFAULT_FAQ[-1]))
-    return [dict(item) for item in sanitized[:3]]
+    return [dict(item) for item in sanitized[:ARTICLE_FAQ_MAX]]
 
 
 def document_from_post(post: Post) -> ArticleDocument:
