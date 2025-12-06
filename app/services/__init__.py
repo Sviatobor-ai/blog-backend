@@ -89,11 +89,15 @@ def _load_payload(text: str) -> dict[str, Any]:
             raise AssistantInvalidJSON(_shorten(f"Assistant returned invalid JSON: {exc}")) from exc
 
 
+ARTICLE_PATH_PREFIX = "/artykuly"
+
+
 @lru_cache
 def _article_canonical_base() -> str:
-    """Return the canonical base URL without forcing a fixed path segment."""
+    """Return the canonical base URL scoped to the article section."""
 
-    return get_site_base_url().rstrip("/")
+    base = get_site_base_url().rstrip("/")
+    return f"{base}{ARTICLE_PATH_PREFIX}"
 
 
 def get_article_canonical_base() -> str:
