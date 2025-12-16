@@ -21,6 +21,11 @@ from ..article_schema import (
 )
 from ..config import get_openai_settings, get_site_base_url
 from ..integrations.openai_client import OpenAIClient, OpenAIClientError
+from .prompt_builders import (
+    build_generation_brief_topic,
+    build_generation_brief_transcript,
+    build_generation_system_instructions,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -112,65 +117,6 @@ def build_canonical_for_slug(slug: str) -> str:
     return f"{base}/{slug_part}"
 
 
-def _build_system_instructions(*, source_url: str | None = None) -> str:
-    canonical_base = get_article_canonical_base()
-    parts = [
-        "You are the content architect for joga.yoga and respond exclusively in Polish (pl-PL).",
-        "Always return exactly one JSON object containing: topic, slug, locale, taxonomy, seo, article, aeo.",
-        "Craft a captivating lead made of several rich paragraphs that invite the reader in.",
-        "Create at least four long-form sections; each body must exceed 400 characters, flow naturally across 4-6 paragraphs and deliver actionable, expert guidance.",
-        "Add a minimum of two high-quality citation URLs under article.citations and prefer three when available.",
-        "Populate taxonomy.tags with at least two precise joga.yoga-friendly keywords and ensure taxonomy.categories is never empty.",
-        "Produce complete SEO metadata and set seo.canonical to a URL that begins with "
-        f"{canonical_base}.",
-        "Keep seo.title and article.headline in Polish under 60 characters, single-line, free of colons, and naturally containing at least one strategic keyword.",
-        "Ensure aeo.geo_focus lists meaningful Polish or European localisations and compose 2-4 FAQ entries that resolve outstanding reader questions with thorough answers.",
-        "Return JSON only — no comments, markdown, or surrounding prose.",
-    ]
-    if source_url:
-        parts.append(
-            f"Incorporate the supplied source URL ({source_url}) as one of the citations whenever it genuinely supports the piece."
-        )
-    return " ".join(parts)
-
-
-def _compose_generation_brief(
-    *,
-    rubric: str | None,
-    topic: str | None,
-    keywords: Iterable[str] | None,
-    guidance: str | None,
-    transcript: str | None = None,
-) -> str:
-    keyword_text = ", ".join(keyword.strip() for keyword in (keywords or []) if keyword and keyword.strip())
-    lines: list[str] = [
-        "Tworzysz długą, empatyczną i ekspercką publikację dla bloga joga.yoga.",
-        "Budujesz narrację z wyraźnymi akapitami, przykładami oraz wskazówkami do wdrożenia w codzienności.",
-        "Dbasz o logiczne przejścia między sekcjami i konsekwentny ton głosu marki.",
-        "Lead musi liczyć co najmniej dwie akapity, a każda sekcja rozwija temat w sposób pogłębiony, a nie skrótowy.",
-        "FAQ zawiera 2-4 pytania i wyczerpujące odpowiedzi wynikające z treści artykułu.",
-    ]
-    if rubric:
-        lines.append(f"Rubryka redakcyjna: {rubric}.")
-    if topic:
-        lines.append(f"Temat przewodni artykułu: {topic}.")
-    if keyword_text:
-        lines.append(f"Wpleć naturalnie słowa kluczowe SEO: {keyword_text}.")
-    if guidance:
-        lines.append(f"Dodatkowe wytyczne redakcyjne: {guidance}.")
-    lines.append(
-        "Przygotuj jednowierszowy tytuł SEO i nagłówek (55-60 znaków), bez dwukropków i dopisków, wykorzystując naturalnie przynajmniej jedno kluczowe słowo z tematu lub listy słów kluczowych."
-    )
-    lines.append(
-        "Opracuj sugestywny nagłówek, rozbudowany lead i sekcje, które odpowiadają na potrzeby odbiorców joga.yoga."
-    )
-    if transcript:
-        lines.append(
-            "Bazuj na poniższej transkrypcji (przetłumacz ją na polski, jeśli jest w innym języku), rozwiń ją w pełnoprawny artykuł i unikaj streszczania."
-        )
-        lines.append("TRANSKRYPCJA:")
-        lines.append(transcript)
-    return "\n".join(lines)
 
 
 class _BaseAssistantGenerator:
@@ -280,7 +226,7 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
             keywords=keywords,
             guidance=guidance,
         )
-        instructions = _build_system_instructions()
+        instructions = build_generation_system_instructions()
         return self._execute(user_message=prompt, run_instructions=instructions)
 
     def _compose_prompt(
@@ -291,8 +237,8 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
         keywords: Iterable[str] | None,
         guidance: str | None,
     ) -> str:
-        return _compose_generation_brief(
-            rubric=rubric,
+        return build_generation_brief_topic(
+            rubric_name=rubric,
             topic=topic,
             keywords=keywords,
             guidance=guidance,
@@ -318,14 +264,14 @@ class OpenAIAssistantFromTranscriptGenerator(_BaseAssistantGenerator):
 
     def generate_from_transcript(self, *, raw_text: str, source_url: str) -> dict[str, Any]:
         transcript = raw_text.strip()
-        user_message = _compose_generation_brief(
-            rubric=None,
+        user_message = build_generation_brief_transcript(
+            rubric_name=None,
             topic=None,
             keywords=None,
             guidance=None,
-            transcript=transcript,
+            transcript_text=transcript,
         )
-        instructions = _build_system_instructions(source_url=source_url)
+        instructions = build_generation_system_instructions(source_url=source_url)
         # TODO: consider using the Responses API with structured outputs once available.
         return self._execute(user_message=user_message, run_instructions=instructions)
 

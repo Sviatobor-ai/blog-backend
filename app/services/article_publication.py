@@ -18,6 +18,33 @@ from ..services import (
 from .article_utils import compose_body_mdx
 
 
+def _trim_title_value(value: str, max_len: int) -> str:
+    if len(value) <= max_len:
+        return value
+    trimmed = value[:max_len].rstrip()
+    last_space = trimmed.rfind(" ")
+    if last_space > 0:
+        candidate = trimmed[:last_space].rstrip()
+        if candidate:
+            return candidate
+    return trimmed
+
+
+def normalize_title_fields(document: ArticleDocument, max_len: int = 60) -> ArticleDocument:
+    """Ensure title-like fields respect the provided length limit."""
+
+    seo_title = _trim_title_value(document.seo.title, max_len)
+    headline = _trim_title_value(document.article.headline, max_len)
+
+    if seo_title == document.seo.title and headline == document.article.headline:
+        return document
+
+    payload = document.model_dump(mode="json")
+    payload["seo"]["title"] = seo_title
+    payload["article"]["headline"] = headline
+    return ArticleDocument.model_validate(payload)
+
+
 def prepare_document_for_publication(
     db: Session,
     document: ArticleDocument,
@@ -28,10 +55,12 @@ def prepare_document_for_publication(
 ) -> ArticleDocument:
     """Normalise slug, canonical URL and taxonomy before persistence."""
 
+    normalized_document = normalize_title_fields(document)
+
     desired_slug_source = (
-        document.slug
-        or document.seo.slug
-        or document.seo.title
+        normalized_document.slug
+        or normalized_document.seo.slug
+        or normalized_document.seo.title
         or fallback_topic
     )
     desired_slug = slugify_pl(desired_slug_source)
@@ -43,7 +72,7 @@ def prepare_document_for_publication(
 
     canonical = canonical_override or build_canonical_for_slug(final_slug)
 
-    document_data = document.model_dump(mode="json")
+    document_data = normalized_document.model_dump(mode="json")
     document_data["slug"] = final_slug
     document_data.setdefault("taxonomy", {})["section"] = rubric_name
     document_data.setdefault("seo", {})["slug"] = final_slug
