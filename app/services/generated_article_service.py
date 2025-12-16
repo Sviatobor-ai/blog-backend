@@ -37,7 +37,7 @@ class GeneratedArticleService:
         supadata_provider: Callable[[], SupaDataClient],
         now=None,
     ) -> ArticlePublishResponse:
-        from ..main import document_from_post
+        from .article_publication import document_from_post
 
         if payload.video_url:
             if not transcript_generator.is_configured:

@@ -8,8 +8,8 @@ import logging
 from pathlib import Path
 
 from .db import SessionLocal
-from .main import document_from_post
 from .models import Post
+from .services.article_publication import document_from_post
 
 logger = logging.getLogger(__name__)
 

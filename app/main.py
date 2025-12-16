@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import logging
-import re
 from functools import lru_cache
 from math import ceil
-from typing import Callable, Iterable, List
+from typing import Callable, Iterable
 import os
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -14,7 +13,6 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import ValidationError
 from sqlalchemy import String, cast, func, text
 from sqlalchemy.orm import Session
 
@@ -33,13 +31,9 @@ from .schemas import (
     ArticlePublishResponse,
     ArticleSummary,
 )
-from .services import (
-    OpenAIAssistantArticleGenerator,
-    build_canonical_for_slug,
-    get_transcript_generator,
-)
+from .services import OpenAIAssistantArticleGenerator, get_transcript_generator
 from .services.generated_article_service import GeneratedArticleService
-from .services.article_utils import compose_body_mdx, extract_sections_from_body
+from .services.article_publication import document_from_post
 
 
 logging.basicConfig(level=logging.INFO)
@@ -125,29 +119,6 @@ def get_generator() -> OpenAIAssistantArticleGenerator:
     )
 
 
-FALLBACK_FILLER = (
-    "Artykuł został przygotowany dla czytelników joga.yoga, aby wspierać świadomą regenerację i"
-    " budować dobre nawyki wellness podczas wyjazdów i praktyki w domu."
-)
-DEFAULT_CATEGORY = "Zdrowie i joga"
-DEFAULT_TAGS = ["joga", "wellness", "regeneracja"]
-DEFAULT_FAQ = [
-    {
-        "question": "Jak mogę wykorzystać wskazówki z artykułu na wyjeździe?",
-        "answer": "Wybierz jeden rytuał regeneracyjny i zaplanuj go na każdy dzień pobytu, aby ciało i umysł miały"
-        " stały punkt odnowy niezależnie od intensywności programu.",
-    },
-    {
-        "question": "Czy te wskazówki nadają się dla początkujących?",
-        "answer": "Tak, każda praktyka ma łagodny wariant dla osób stawiających pierwsze kroki, a bardziej"
-        " doświadczeni uczestnicy mogą rozszerzyć ćwiczenia o dłuższe relaksacje.",
-    },
-    {
-        "question": "Jakie akcesoria warto spakować?",
-        "answer": "Przygotuj matę, koc, niewielką poduszkę oraz ulubioną wodę ziołową, aby łatwo utrzymać"
-        " komfort w trakcie ćwiczeń i odpoczynku.",
-    },
-]
 
 SUMMARY_TITLE_MAX_CHARS = 60
 SUMMARY_TITLE_ELLIPSIS = "…"
@@ -181,138 +152,6 @@ def _build_summary_title(post: Post) -> str:
             return truncated
     fallback = post.slug.replace("-", " ")
     return _truncate_summary_title(fallback)
-
-
-def _ensure_text_length(value: str, *, minimum: int, maximum: int | None = None) -> str:
-    filler = _normalize_text(FALLBACK_FILLER)
-    text = _normalize_text(value) or filler
-    while len(text) < minimum:
-        text = f"{text} {filler}".strip()
-    if maximum is not None and len(text) > maximum:
-        text = text[:maximum]
-    return text.strip()
-
-
-def _ensure_sections(sections: List[dict]) -> List[dict]:
-    sanitized: List[dict] = []
-    for index, section in enumerate(sections, start=1):
-        title = _normalize_text(str(section.get("title", ""))) or f"Sekcja {index}"
-        body = _ensure_text_length(section.get("body", ""), minimum=700)
-        sanitized.append({"title": title, "body": body})
-    while len(sanitized) < 4:
-        sanitized.append(
-            {
-                "title": f"Sekcja {len(sanitized) + 1}",
-                "body": _ensure_text_length("", minimum=700),
-            }
-        )
-    return sanitized
-
-
-def _ensure_citations(citations: List[str] | None, canonical: str) -> List[str]:
-    items = [item for item in (citations or []) if isinstance(item, str) and item.startswith("http")]
-    base = canonical if canonical.startswith("http") else "https://wiedza.joga.yoga"
-    while len(items) < 2:
-        suffix = "" if not items else f"?ref={len(items) + 1}"
-        items.append(f"{base}{suffix}")
-    return items
-
-
-def _ensure_categories(categories: List[str] | None, section: str) -> List[str]:
-    items = [item for item in (categories or []) if _normalize_text(item)]
-    if not items:
-        default = _normalize_text(section) or DEFAULT_CATEGORY
-        items = [default]
-    return items
-
-
-def _ensure_tags(tags: List[str] | None) -> List[str]:
-    items = [item for item in (tags or []) if _normalize_text(item)]
-    for tag in DEFAULT_TAGS:
-        if len(items) >= 3:
-            break
-        if tag not in items:
-            items.append(tag)
-    if len(items) < 3:
-        items.extend(DEFAULT_TAGS[: 3 - len(items)])
-    return items[:10]
-
-
-def _ensure_faq(faq_items: List[dict] | None) -> List[dict]:
-    sanitized: List[dict] = []
-    for item in faq_items or []:
-        question = _normalize_text(str(item.get("question", "")))
-        answer = _ensure_text_length(item.get("answer", ""), minimum=40)
-        if question and answer:
-            sanitized.append({"question": question, "answer": answer})
-    defaults_iter = iter(DEFAULT_FAQ)
-    while len(sanitized) < 1:
-        try:
-            sanitized.append(dict(next(defaults_iter)))
-        except StopIteration:
-            sanitized.append(dict(DEFAULT_FAQ[-1]))
-    return [dict(item) for item in sanitized[:3]]
-
-
-def document_from_post(post: Post) -> ArticleDocument:
-    if post.payload:
-        try:
-            return ArticleDocument.model_validate(post.payload)
-        except (ValueError, ValidationError) as exc:
-            logging.warning(
-                "Stored payload for slug %s is invalid, falling back to columns: %s",
-                post.slug,
-                exc,
-            )
-    canonical = str(post.canonical) if post.canonical else ""
-    if not canonical.startswith("http"):
-        canonical = build_canonical_for_slug(post.slug)
-    taxonomy_section = _normalize_text(post.section) or DEFAULT_CATEGORY
-    categories = _ensure_categories(post.categories, taxonomy_section)
-    tags = _ensure_tags(post.tags)
-    lead = _ensure_text_length(post.lead, minimum=250)
-    description = _ensure_text_length(post.description or lead, minimum=140, maximum=160)
-    sections = _ensure_sections(extract_sections_from_body(post.body_mdx or ""))
-    citations = _ensure_citations(post.citations, canonical)
-    faq = _ensure_faq(post.faq)
-    geo_focus = [item for item in (post.geo_focus or []) if _normalize_text(item)] or ["Polska"]
-    headline = _normalize_text(post.headline) or _normalize_text(post.title) or post.slug.replace("-", " ")
-    if len(headline) < 5:
-        headline = _ensure_text_length(headline, minimum=5)
-    topic = _normalize_text(post.title) or headline or post.slug.replace("-", " ")
-    if len(topic) < 5:
-        topic = _ensure_text_length(topic, minimum=5)
-    seo_title_source = _normalize_text(post.title) or headline
-    seo_title = (seo_title_source or topic)[:70].strip()
-
-    fallback_document = {
-        "topic": topic,
-        "slug": post.slug,
-        "locale": post.locale or "pl-PL",
-        "taxonomy": {
-            "section": taxonomy_section,
-            "categories": categories,
-            "tags": tags,
-        },
-        "seo": {
-            "title": seo_title or topic[:70],
-            "description": description,
-            "slug": post.slug,
-            "canonical": canonical,
-            "robots": post.robots or "index,follow",
-        },
-        "article": {
-            "headline": headline or topic,
-            "lead": lead,
-            "sections": sections,
-            "citations": citations,
-        },
-        "aeo": {
-            "geo_focus": geo_focus,
-            "faq": faq,
-        },
-    }
-    return ArticleDocument.model_validate(fallback_document)
 
 
 @app.get("/health")
