@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class GeneratedArticleService:
     """Application service orchestrating article creation."""
 
-    def create_article(
+    def generate_and_publish(
         self,
         *,
         payload: ArticleCreateRequest,
@@ -38,6 +38,13 @@ class GeneratedArticleService:
         now=None,
     ) -> ArticlePublishResponse:
         from .article_publication import document_from_post
+
+        logger.info(
+            "article-generation-start mode=%s topic=%s video_url=%s",
+            "video" if payload.video_url else "topic",
+            payload.topic,
+            payload.video_url,
+        )
 
         if payload.video_url:
             if not transcript_generator.is_configured:
@@ -92,6 +99,7 @@ class GeneratedArticleService:
             except ArticleGenerationError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
             document = document_from_post(post)
+            logger.info("article-generation-done mode=video slug=%s id=%s", post.slug, post.id)
             return ArticlePublishResponse(slug=post.slug, id=post.id, post=document)
 
         if not generator.is_configured:
@@ -134,4 +142,42 @@ class GeneratedArticleService:
         except ArticleGenerationError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+        logger.info("article-generation-done mode=topic slug=%s id=%s", post.slug, post.id)
         return ArticlePublishResponse(slug=post.slug, id=post.id, post=document)
+
+    def create_article(
+        self,
+        *,
+        payload: ArticleCreateRequest,
+        db: Session,
+        generator: OpenAIAssistantArticleGenerator,
+        transcript_generator,
+        supadata_provider: Callable[[], SupaDataClient],
+        now=None,
+    ) -> ArticlePublishResponse:
+        return self.generate_and_publish(
+            payload=payload,
+            db=db,
+            generator=generator,
+            transcript_generator=transcript_generator,
+            supadata_provider=supadata_provider,
+            now=now,
+        )
+
+
+def build_request_from_payload(payload: dict) -> ArticleCreateRequest:
+    """Normalize external payloads into the canonical request model."""
+
+    url = payload.get("url") or payload.get("video_url")
+    topic = payload.get("topic") or "Auto article from queue"
+    keywords = payload.get("keywords") or []
+    guidance = payload.get("guidance")
+    rubric_code = payload.get("rubric_code")
+
+    return ArticleCreateRequest(
+        topic=str(topic),
+        rubric_code=rubric_code,
+        keywords=list(keywords),
+        guidance=guidance,
+        video_url=url,
+    )

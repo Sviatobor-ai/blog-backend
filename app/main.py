@@ -263,7 +263,7 @@ def create_article(
     supadata_provider: Callable[[], SupaDataClient] = Depends(_supadata_client_provider),
 ):
     service = GeneratedArticleService()
-    return service.create_article(
+    return service.generate_and_publish(
         payload=payload,
         db=db,
         generator=generator,

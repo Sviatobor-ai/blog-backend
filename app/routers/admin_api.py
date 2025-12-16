@@ -16,12 +16,15 @@ from ..db import SessionLocal
 from ..dependencies import get_db, get_supadata_client
 from ..integrations.supadata import SDVideo, SupaDataClient
 from ..models import GenJob
-from ..schemas import ArticleCreateRequest, ArticlePublishResponse
+from ..schemas import ArticlePublishResponse
 from ..schemas.generate_now import GenerateNowRequest, GenerateNowResponse
 from ..schemas.queue import PlanQueueRequest, PlanQueueResponse, QueueItem, QueueSnapshotResponse
 from ..schemas_admin import AdminSearchRequest, AdminSearchResponse, AdminSearchVideo
 from ..services import OpenAIAssistantArticleGenerator, get_transcript_generator
-from ..services.generated_article_service import GeneratedArticleService
+from ..services.generated_article_service import (
+    GeneratedArticleService,
+    build_request_from_payload,
+)
 from ..services.runner import get_runner, process_url_once
 
 logger = logging.getLogger(__name__)
@@ -48,15 +51,8 @@ def _get_assistant_generator() -> OpenAIAssistantArticleGenerator:
 
 
 def _queue_job_generator(db: Session, payload: dict) -> ArticlePublishResponse:
-    url = payload.get("url") or payload.get("video_url")
-    request_payload = ArticleCreateRequest(
-        topic=str(payload.get("topic") or "Auto article from queue"),
-        rubric_code=payload.get("rubric_code"),
-        keywords=list(payload.get("keywords") or []),
-        guidance=payload.get("guidance"),
-        video_url=url,
-    )
-    return _generated_article_service.create_article(
+    request_payload = build_request_from_payload(payload)
+    return _generated_article_service.generate_and_publish(
         payload=request_payload,
         db=db,
         generator=_get_assistant_generator(),

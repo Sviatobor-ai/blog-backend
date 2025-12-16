@@ -18,8 +18,8 @@ from ..integrations.supadata import (
 )
 from ..models import GenJob
 from ..services import ArticleGenerationError, get_transcript_generator
+from .generated_article_service import GeneratedArticleService, build_request_from_payload
 from .generation_types import ArticleJobGenerator
-from .video_pipeline import generate_article_from_raw
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +53,17 @@ def process_url_once(
     url: str,
 ) -> tuple[bool, Optional[int], Optional[str]]:
     """Execute the transcript→article pipeline synchronously."""
-
+    service = GeneratedArticleService()
+    request_payload = build_request_from_payload({"url": url})
+    transcript_generator = get_transcript_generator()
     try:
-        transcript = supadata.get_transcript(url=url, mode="auto", text=True)
-        text = (transcript.text or "").strip()
+        response = service.generate_and_publish(
+            payload=request_payload,
+            db=db,
+            generator=None,  # not used for transcript path
+            transcript_generator=transcript_generator,
+            supadata_provider=lambda: supadata,
+        )
     except SupadataTranscriptTooShortError as exc:
         logger.warning(
             "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
@@ -68,25 +75,14 @@ def process_url_once(
     except SupadataTranscriptError as exc:
         logger.warning("pipeline supadata-fail url=%s err=%s", url, exc)
         return False, None, str(exc)
-    except Exception as exc:
-        logger.warning("pipeline supadata-fail url=%s err=%s", url, exc)
-        return False, None, str(exc)
-    if not text:
-        return False, None, "no transcript text"
-    generator = get_transcript_generator()
-    try:
-        post = generate_article_from_raw(
-            db,
-            raw_text=text,
-            source_url=url,
-            generator=generator,
-        )
+    except HTTPException as exc:
+        return False, None, str(exc.detail) if exc.detail else str(exc)
     except ArticleGenerationError as exc:
         return False, None, str(exc)
     except Exception as exc:  # pragma: no cover - safety net for unexpected errors
         logger.exception("pipeline failure url=%s", url)
         return False, None, str(exc)
-    return True, post.id, None
+    return True, response.id, None
 
 
 class GenRunner:
