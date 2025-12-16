@@ -5,7 +5,7 @@ This document inventories the current modules, entry points, and supporting flow
 ## A) Current endpoints and entry points
 
 ### Public FastAPI routes (`app/main.py`)
-- `POST /artykuly` → `create_article` →
+- `POST /artykuly` → `GeneratedArticleService.generate_and_publish` (canonical orchestration shared with admin + queue) →
   - With `video_url`: fetch transcript via `get_supadata_client` and `get_transcript_generator`, then `generate_article_from_raw` (transcript assistant) → `document_from_post` (shared publication helper) for response.
   - Without `video_url`: `OpenAIAssistantArticleGenerator.generate_article` → `ArticleDocument.model_validate` → `prepare_document_for_publication` → `persist_article_document`.
 - `GET /artykuly` → `list_articles` → query `Post` ORM for pagination and build `ArticleSummary` objects.
@@ -18,8 +18,8 @@ This document inventories the current modules, entry points, and supporting flow
 - `POST /admin/queue/plan` → `plan_queue` inserts pending `GenJob` rows for provided URLs.
 - `GET /admin/status` → `admin_status` aggregates job counts and runner state.
 - `GET /admin/queue` → `admin_queue` returns latest `GenJob` snapshot.
-- Runner controls: `POST /admin/run/start`, `POST /admin/run/stop` toggle the background worker (`GenRunner`).
-- `POST /admin/generate_now` → `generate_now` executes the transcript→article pipeline synchronously via `process_url_once`.
+- Runner controls: `POST /admin/run/start`, `POST /admin/run/stop` toggle the background worker (`GenRunner`), which maps queued payloads with `build_request_from_payload` and calls `GeneratedArticleService.generate_and_publish`.
+- `POST /admin/generate_now` → `generate_now` executes the transcript→article pipeline synchronously via `process_url_once`, which maps payloads to the HTTP request model and calls `GeneratedArticleService.generate_and_publish`.
 
 ### Admin HTML (`app/routers/admin_page.py`)
 - `/admin` login form, `/admin/login` token validation, `/admin/dashboard` static handoff to frontend console (no generation logic).
