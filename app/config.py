@@ -32,6 +32,15 @@ class ParallelSearchSettings:
     request_timeout_s: float
 
 
+@dataclass(frozen=True)
+class PrimaryGenerationSettings:
+    """Configuration for the primary generation pipeline."""
+
+    research_enabled: bool
+    research_processor: str | None
+    research_timeout_s: float | None
+
+
 @lru_cache
 def get_database_url() -> str:
     """Return the configured database URL or fail fast when missing."""
@@ -71,6 +80,28 @@ def get_parallel_search_settings() -> ParallelSearchSettings:
         api_key=os.getenv("PARALLELAI_API_KEY"),
         base_url=os.getenv("PARALLELAI_BASE_URL", "https://api.parallel.ai"),
         request_timeout_s=float(os.getenv("PARALLELAI_TIMEOUT_S", "1200")),
+    )
+
+
+@lru_cache
+def get_primary_generation_settings() -> PrimaryGenerationSettings:
+    """Return feature flags and knobs for primary article generation."""
+
+    processor = os.getenv("PRIMARY_GENERATION_RESEARCH_PROCESSOR")
+    timeout_raw = os.getenv("PRIMARY_GENERATION_RESEARCH_TIMEOUT")
+    timeout: float | None
+    try:
+        timeout = float(timeout_raw) if timeout_raw else None
+    except ValueError as exc:  # pragma: no cover - guardrail for invalid configuration
+        raise RuntimeError("PRIMARY_GENERATION_RESEARCH_TIMEOUT must be numeric") from exc
+
+    enabled_raw = os.getenv("PRIMARY_GENERATION_RESEARCH_ENABLED", "false").lower()
+    enabled = enabled_raw in {"1", "true", "yes", "on"}
+
+    return PrimaryGenerationSettings(
+        research_enabled=enabled,
+        research_processor=processor or None,
+        research_timeout_s=timeout,
     )
 
 @lru_cache

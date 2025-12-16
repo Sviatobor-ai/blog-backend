@@ -16,6 +16,8 @@ if str(ROOT_DIR) not in sys.path:
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from sqlalchemy.types import JSON  # noqa: E402
 
+from app import config  # noqa: E402
+from app.enhancer.deep_search import DeepSearchResult, DeepSearchSource  # noqa: E402
 from app.integrations.supadata import TranscriptResult  # noqa: E402
 from app.models import Post  # noqa: E402
 from app.schemas import ArticleCreateRequest  # noqa: E402
@@ -109,7 +111,22 @@ def _reset_database():
 class FakeGenerator:
     is_configured = True
 
-    def generate_article(self, *, topic: str, rubric: str, keywords=None, guidance=None):
+    def __init__(self) -> None:
+        self.research_content = None
+        self.research_sources = None
+
+    def generate_article(
+        self,
+        *,
+        topic: str,
+        rubric: str,
+        keywords=None,
+        guidance=None,
+        research_content=None,
+        research_sources=None,
+    ):
+        self.research_content = research_content
+        self.research_sources = research_sources
         document = deepcopy(SAMPLE_DOCUMENT)
         document["topic"] = topic
         document["taxonomy"] = dict(document["taxonomy"])
@@ -124,7 +141,14 @@ class FakeTranscriptGenerator:
     def __init__(self) -> None:
         self.called_with: Dict[str, str] | None = None
 
-    def generate_from_transcript(self, *, raw_text: str, source_url: str):
+    def generate_from_transcript(
+        self,
+        *,
+        raw_text: str,
+        source_url: str,
+        research_content=None,
+        research_sources=None,
+    ):
         self.called_with = {"raw_text": raw_text, "source_url": source_url}
         document = deepcopy(SAMPLE_DOCUMENT)
         document["topic"] = "Transkrypcja do artykulu"
@@ -181,3 +205,43 @@ def test_service_creates_article_from_video_path():
     assert transcript_calls == ["https://youtube.com/watch?v=video123"]
     assert transcript_generator.called_with is not None
     assert transcript_generator.called_with["source_url"] == "https://youtube.com/watch?v=video123"
+
+
+def _set_research_flag(enabled: bool) -> None:
+    os.environ["PRIMARY_GENERATION_RESEARCH_ENABLED"] = "true" if enabled else "false"
+    config.get_primary_generation_settings.cache_clear()
+
+
+def test_service_runs_research_when_enabled():
+    _reset_database()
+    _set_research_flag(True)
+    research_calls: list[dict] = []
+    service = GeneratedArticleService()
+
+    class StubResearchClient:
+        def search(self, *, title: str, lead: str):
+            research_calls.append({"title": title, "lead": lead})
+            return DeepSearchResult(
+                summary="Research summary",
+                sources=[DeepSearchSource(url="https://example.com/source", title="Example")],
+            )
+
+    generator = FakeGenerator()
+
+    with SessionLocal() as session:
+        payload = ArticleCreateRequest(topic="Badanie jogi", rubric_code=None)
+        response = service.create_article(
+            payload=payload,
+            db=session,
+            generator=generator,
+            transcript_generator=FakeTranscriptGenerator(),
+            supadata_provider=lambda: None,
+            research_client_provider=lambda: StubResearchClient(),
+        )
+
+    _set_research_flag(False)
+
+    assert research_calls, "research client should be invoked when flag is enabled"
+    assert generator.research_content == "Research summary"
+    assert generator.research_sources and generator.research_sources[0].url == "https://example.com/source"
+    assert response.status == "published"
