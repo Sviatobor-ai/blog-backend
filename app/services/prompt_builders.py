@@ -51,10 +51,10 @@ def _compose_generation_brief(
         "Tworzysz długą, empatyczną i ekspercką publikację dla bloga joga.yoga.",
         "Budujesz narrację z wyraźnymi akapitami, przykładami oraz wskazówkami do wdrożenia w codzienności.",
         "Preserve author voice i rytm narracji z AuthorContext; artykuł ma brzmieć jak mówiony przez autora, nie jak encyklopedia.",
-        "Research jest wsparciem: doprecyzuj terminy, weryfikuj fakty i dodawaj cytowania, ale nie zmieniaj tonu na akademicki.",
-        "Jeśli coś jest opinią autora, zaznacz to wprost. Fakty podpieraj dostarczonymi źródłami, gdy to możliwe.",
         "Honoruj wytyczne użytkownika jako nadrzędne dla tonu i struktury.",
         "Dopasuj strukturę do materiału i nie wymuszaj sztywnej liczby sekcji.",
+        "FAQ powinno odpowiadać na pozostające praktyczne pytania (nie pytaj o to samo co w nagłówkach); jeśli nic nie pozostaje do wyjaśnienia, FAQ może być puste.",
+        "Cytuj twierdzenia faktograficzne najlepiej dopasowanymi źródłami z researchu zamiast listowania wielu linków.",
     ]
     if rubric:
         lines.append(f"Rubryka redakcyjna: {rubric}.")
@@ -67,7 +67,20 @@ def _compose_generation_brief(
     if user_guidance:
         lines.append(f"Najważniejsze wskazówki od użytkownika (priorytet): {user_guidance}.")
     if research_content or research_sources:
-        lines.append("Wykorzystaj dostarczone ustalenia z researchu jako wsparcie merytoryczne i cytowania faktów.")
+        lines.extend(
+            [
+                "Kontrakt kompozycji:",
+                "- Primary voice is the author (lub wskazówki użytkownika). Narracja ma brzmieć naturalnie i ludzko.",
+                "- Research używaj do: (a) doprecyzowania pojęć, (b) krótkich wtrąceń faktograficznych, (c) cytowań faktów.",
+                "- Nie przerabiaj całości na ton akademicki.",
+                "- Gdy coś jest opinią autora, oznacz to wprost (np. 'Autor podkreśla…').",
+                "- Gdy podajesz fakt, wesprzyj go dostępnym źródłem.",
+                "- Preferuj krótkie wstawki z researchu (1–2 zdania) blisko powiązanych akapitów.",
+                "Dodaj opcjonalny blok 'Kontekst i źródła (dla ciekawych)' przed FAQ, tylko gdy masz research_summary lub źródła; ma być zwięzły (definicje w punktach + 3–8 źródeł).",
+                "FAQ ma odpowiadać na pozostałe praktyczne pytania, bez powtarzania tytułów sekcji; jeśli brak sensownych pytań, FAQ może być puste.",
+                "Cytowania: korzystaj z dostarczonych źródeł do twierdzeń faktograficznych, wybieraj linki najlepiej pasujące do tezy (unikaj nadmiaru).",
+            ]
+        )
     lines.extend(_format_author_context(author_context))
     if research_content:
         lines.append("Podsumowanie researchu:")
@@ -162,12 +175,13 @@ def build_generation_system_instructions(*, source_url: str | None = None) -> st
         "Always return exactly one JSON object containing: topic, slug, locale, taxonomy, seo, article, aeo.",
         "Craft a captivating lead made of several rich paragraphs that invite the reader in.",
         "Twórz rozbudowane sekcje dopasowane do materiału, zamiast powtarzalnego układu.",
-        "Add a minimum of two high-quality citation URLs under article.citations and prefer three when available.",
+        "Dodawaj cytowania do twierdzeń faktograficznych korzystając z research_sources, wybieraj 2-3 najlepiej pasujące linki bez przeładowania.",
         "Populate taxonomy.tags with at least two precise joga.yoga-friendly keywords and ensure taxonomy.categories is never empty.",
         "Produce complete SEO metadata and set seo.canonical to a URL that begins with ",
         f"{canonical_base}.",
         "Keep seo.title and article.headline in Polish under 60 characters, single-line, free of colons, and naturally containing at least one strategic keyword.",
-        "Ensure aeo.geo_focus lists meaningful Polish or European localisations and compose 2-4 FAQ entries that resolve outstanding reader questions with thorough answers.",
+        "Ensure aeo.geo_focus lists meaningful Polish or European localisations. FAQ ma odpowiadać na pozostałe praktyczne pytania (nie powtarzaj tytułów sekcji); jeśli brak nowych pytań, FAQ może być puste.",
+        "Jeśli dodajesz suplement 'Kontekst i źródła (dla ciekawych)', umieść go na końcu sekcji przed FAQ, zwięźle (krótka lista pojęć + 3–8 wybranych źródeł).",
         "Return JSON only — no comments, markdown, or surrounding prose.",
     ]
     if source_url:

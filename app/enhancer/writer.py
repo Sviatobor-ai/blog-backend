@@ -76,7 +76,9 @@ class EnhancementWriter:
             "Jesteś redaktorem joga.yoga. Piszesz po polsku, ciepłym i eksperckim tonem."
             " Uzupełniasz istniejący artykuł o co najmniej dwie nowe sekcje H2 bazując"
             " na świeżych materiałach zewnętrznych oraz dodajesz jedno pytanie FAQ."
-            " Nie używasz technicznych nagłówków ani dat w tytułach. Odpowiadasz tylko JSON-em."
+            " Nie używasz technicznych nagłówków ani dat w tytułach."
+            " Zachowaj narrację autora, dodając research jako krótkie wstawki lub zwięzły blok 'Kontekst i źródła (dla ciekawych)'"
+            " bez przepisywania artykułu na ton akademicki. Odpowiadasz tylko JSON-em."
         )
 
     def _build_user_prompt(self, request: EnhancementRequest) -> str:

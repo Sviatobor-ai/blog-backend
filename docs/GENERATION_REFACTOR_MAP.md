@@ -110,3 +110,11 @@ This document inventories the current modules, entry points, and supporting flow
 - Transcript/video generation now derives an `AuthorContext` (voice markers, tezy, cytaty) from the source transcript and passes it into prompt builders.
 - Topic-mode briefs treat user guidance as the top style constraint while research remains wsparcie do faktów i cytowań.
 - Transcript pipeline logs a warning when none of the extracted voice markers appear in the published text, keeping persistence unaffected.
+
+### Output composition rules (PR C)
+
+- Kontrakt kompozycji w `app/services/prompt_builders.py` (topic + transcript) utrzymuje narrację autora, używa researchu tylko do krótkich wstawek i cytowań, bez tonu akademickiego.
+- Instrukcje generacji opisują opcjonalny blok „Kontekst i źródła (dla ciekawych)” (zwięzłe definicje + 3–8 źródeł) umieszczony pod koniec przed FAQ oraz FAQ jako odpowiedzi na brakujące pytania (może być puste, nie powtarza nagłówków).
+- Cytowania mają wykorzystywać najlepiej dopasowane linki z research_sources zamiast przeładowania listy.
+- Strażnik `_ensure_context_section_before_faq` w `app/services/article_publication.py` przenosi sekcję „Kontekst i źródła (dla ciekawych)” na koniec sekcji, jeśli FAQ istnieje.
+- Enhancement writer (`app/enhancer/writer.py`) otrzymał tę samą wskazówkę: utrzymuj narrację autora, research dodawaj jako krótkie wstawki lub kompaktowy blok kontekstu.
