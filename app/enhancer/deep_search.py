@@ -34,6 +34,7 @@ class DeepSearchResult:
 
     summary: str | None
     sources: List[DeepSearchSource]
+    run_id: str | None = None
 
 
 class ParallelDeepSearchClient:
@@ -79,7 +80,7 @@ class ParallelDeepSearchClient:
         except httpx.HTTPError as exc:  # pragma: no cover - network guard
             raise DeepSearchError(f"Parallel.ai request failed: {exc}") from exc
 
-        return self._parse_result(results_payload)
+        return self._parse_result(results_payload, run_id=run_id)
 
     def _build_prompt(self, *, title: str, lead: str) -> str:
         lines = [
@@ -217,7 +218,7 @@ class ParallelDeepSearchClient:
         )
         return payload
 
-    def _parse_result(self, payload: dict[str, Any]) -> DeepSearchResult:
+    def _parse_result(self, payload: dict[str, Any], *, run_id: str | None) -> DeepSearchResult:
         run_result = payload.get("run_result") or {}
         output = payload.get("output") or run_result.get("output") or {}
         summary: str | None = None
@@ -263,7 +264,7 @@ class ParallelDeepSearchClient:
         if isinstance(basis, list):
             source_payload.extend(basis)
         sources = self._extract_sources(source_payload)
-        return DeepSearchResult(summary=summary, sources=sources)
+        return DeepSearchResult(summary=summary, sources=sources, run_id=run_id)
 
     def _extract_sources(self, items: Iterable[Any]) -> List[DeepSearchSource]:
         sources: List[DeepSearchSource] = []

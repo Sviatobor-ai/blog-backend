@@ -11,7 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth import require_token
-from ..config import get_openai_settings
+from ..config import get_openai_settings, get_parallel_search_settings, get_primary_generation_settings
 from ..db import SessionLocal
 from ..dependencies import get_db, get_supadata_client
 from ..integrations.supadata import SDVideo, SupaDataClient
@@ -198,6 +198,21 @@ def admin_queue(
         for job in jobs
     ]
     return QueueSnapshotResponse(items=items)
+
+
+@admin_api_router.get("/diagnostics/research", include_in_schema=False)
+def research_diagnostics(_: object = Depends(require_token)) -> dict:
+    """Return safe diagnostics for primary research wiring."""
+
+    primary_settings = get_primary_generation_settings()
+    parallel_settings = get_parallel_search_settings()
+    return {
+        "research_enabled": primary_settings.research_enabled,
+        "parallel_config_present": bool(parallel_settings.api_key),
+        "parallel_base_url": parallel_settings.base_url,
+        "processor": primary_settings.research_processor,
+        "timeout_sec": primary_settings.research_timeout_s or parallel_settings.request_timeout_s,
+    }
 
 
 @admin_api_router.post(
