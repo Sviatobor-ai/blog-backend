@@ -45,7 +45,7 @@ This document inventories the current modules, entry points, and supporting flow
 
 - Article generation assistants (structured drafts):
   - Implemented in `OpenAIAssistantArticleGenerator` and `OpenAIAssistantFromTranscriptGenerator` (`app/services/__init__.py`).
-  - Prompt builders: `_compose_generation_brief` assembles rubric/topic/keywords/guidance (or transcript); `_build_system_instructions` enforces JSON-only Polish output with SEO/citation requirements.
+  - Prompt builders now live in `app/services/prompt_builders.py` (topic vs transcript briefs + shared system instructions).
   - Execution: `_execute` uses `OpenAIClient` (`app/integrations/openai_client.py`) to create a thread, add user message, run the assistant, poll for completion, then parse the latest assistant message.
   - Schema validation: `_load_payload` extracts JSON from the assistant reply; `validate_article_payload` validates against `ARTICLE_DOCUMENT_SCHEMA`; `ArticleDocument.model_validate` is used when the HTTP route or transcript pipeline re-validates the returned dict.
 - Enhancement writer (adds sections/FAQ):
@@ -54,7 +54,7 @@ This document inventories the current modules, entry points, and supporting flow
 
 ## D) Current publication/persistence flow
 
-- Normalization before save: `prepare_document_for_publication` (`app/services/article_publication.py`) slugifies using `slugify_pl` + `ensure_unique_slug`, fills taxonomy section from rubric, sets `seo.slug` and `seo.canonical` (via `build_canonical_for_slug` or override).
+- Normalization before save: `prepare_document_for_publication` (`app/services/article_publication.py`) slugifies using `slugify_pl` + `ensure_unique_slug`, trims title-like fields to ≤60 characters, fills taxonomy section from rubric, sets `seo.slug` and `seo.canonical` (via `build_canonical_for_slug` or override).
 - Body rendering: `compose_body_mdx` (`app/services/article_utils.py`) turns section dictionaries into MDX string for storage.
 - Persistence: `persist_article_document` writes `Post` with canonical SEO fields, narrative, `faq`, `citations`, and the full `payload`; timestamps `created_at` and `updated_at` default to `datetime.now(timezone.utc)` (overriding DB defaults for new rows).
 - Fallback document builder: `document_from_post` (`app/main.py`) rehydrates `ArticleDocument` from stored payload or columns, applying normalization helpers for missing data (sections, citations, tags, FAQ, canonical).
