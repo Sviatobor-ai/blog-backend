@@ -12,14 +12,13 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.enhancer.deep_search import DeepSearchSource  # noqa: E402
-from app.enhancer.pipeline import ArticleEnhancer  # noqa: E402
+from app.enhancer.helpers import (  # noqa: E402
+    apply_enhancement_updates,
+    merge_single_citation,
+    select_citations,
+)
 from app.enhancer.writer import EnhancementResponse  # noqa: E402
 from app.schemas import ArticleDocument  # noqa: E402
-
-
-@pytest.fixture()
-def enhancer() -> ArticleEnhancer:
-    return ArticleEnhancer(search_client=object(), writer=object())
 
 
 def _sample_document() -> ArticleDocument:
@@ -76,7 +75,7 @@ def _sample_document() -> ArticleDocument:
     return ArticleDocument.model_validate(base)
 
 
-def test_select_citations_filters_blocked_domains_and_duplicates(enhancer: ArticleEnhancer):
+def test_select_citations_filters_blocked_domains_and_duplicates():
     sources = [
         DeepSearchSource(url="https://example.com/one", title="One", score=0.9, published_at="2024-06-01"),
         DeepSearchSource(url="https://example.com/one", title="Dup", score=0.1),
@@ -89,7 +88,7 @@ def test_select_citations_filters_blocked_domains_and_duplicates(enhancer: Artic
         DeepSearchSource(url="https://seventh.com/ok", title="Seventh"),
     ]
 
-    citations = enhancer._select_citations(sources)
+    citations = select_citations(sources)
 
     assert len(citations) == 6
     assert all(not item.url.endswith(".ru") for item in citations)
@@ -98,7 +97,7 @@ def test_select_citations_filters_blocked_domains_and_duplicates(enhancer: Artic
     assert len({item.url for item in citations}) == len(citations)
 
 
-def test_apply_updates_appends_sections_and_updates_faq(enhancer: ArticleEnhancer):
+def test_apply_updates_appends_sections_and_updates_faq():
     document = _sample_document()
     response = EnhancementResponse(
         added_sections=[
@@ -109,7 +108,7 @@ def test_apply_updates_appends_sections_and_updates_faq(enhancer: ArticleEnhance
     )
     citations = ["https://new.example/one", "https://new.example/two"]
 
-    updated = enhancer._apply_updates(document=document, response=response, citations=citations)
+    updated = apply_enhancement_updates(document=document, response=response, citations=citations)
 
     assert len(updated.article.sections) == len(document.article.sections) + 2
     assert updated.article.sections[-2].title == "Nowe rytuały oddechowe"
@@ -120,19 +119,19 @@ def test_apply_updates_appends_sections_and_updates_faq(enhancer: ArticleEnhance
     assert all(item.question != "Q1" for item in updated.aeo.faq)
 
 
-def test_merge_single_citation_preserves_existing_order(enhancer: ArticleEnhancer):
+def test_merge_single_citation_preserves_existing_order():
     existing = [
         "https://example.com/one",
         "https://example.com/two",
         "https://example.com/three",
     ]
-    merged = enhancer._merge_single_citation(existing, "https://fresh.com/new")
+    merged = merge_single_citation(existing, "https://fresh.com/new")
     assert merged[0] == "https://fresh.com/new"
     assert merged[1:] == existing
 
 
-def test_merge_single_citation_limits_total_count(enhancer: ArticleEnhancer):
+def test_merge_single_citation_limits_total_count():
     existing = [f"https://example.com/{idx}" for idx in range(10)]
-    merged = enhancer._merge_single_citation(existing, "https://fresh.com/new")
+    merged = merge_single_citation(existing, "https://fresh.com/new")
     assert len(merged) == 6
     assert merged[0] == "https://fresh.com/new"
