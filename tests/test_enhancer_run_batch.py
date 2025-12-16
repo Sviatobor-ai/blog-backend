@@ -58,10 +58,6 @@ def test_run_batch_rolls_back_and_continues(monkeypatch):
         def __init__(self, *args, **kwargs):  # pragma: no cover - test stub
             pass
 
-    class FakeSearchClient:
-        def __init__(self, *args, **kwargs):  # pragma: no cover - test stub
-            pass
-
     class FakeEnhancer:
         calls: list[str] = []
 
@@ -79,7 +75,7 @@ def test_run_batch_rolls_back_and_continues(monkeypatch):
     FakeEnhancer.calls = []
 
     monkeypatch.setattr(run_batch, "EnhancementWriter", FakeWriter)
-    monkeypatch.setattr(run_batch, "ParallelDeepSearchClient", FakeSearchClient)
+    monkeypatch.setattr(run_batch, "get_parallel_deep_search_client", lambda: object())
     monkeypatch.setattr(run_batch, "ArticleEnhancer", FakeEnhancer)
 
     run_batch.run_batch(verbose=False)
