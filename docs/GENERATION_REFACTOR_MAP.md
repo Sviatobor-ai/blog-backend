@@ -104,3 +104,9 @@ This document inventories the current modules, entry points, and supporting flow
 - GenRunner now accepts an injected article generator, keeping queue processing decoupled from transcript/publish internals.
 - Admin queue wiring reuses `GeneratedArticleService` via an adapter so background jobs share the HTTP generation path.
 - `ParallelDeepSearchClient` is obtained via `get_parallel_deep_search_client` (enhancer CLI uses the provider) for reuse across flows.
+
+### Author-first adjustments
+
+- Transcript/video generation now derives an `AuthorContext` (voice markers, tezy, cytaty) from the source transcript and passes it into prompt builders.
+- Topic-mode briefs treat user guidance as the top style constraint while research remains wsparcie do faktów i cytowań.
+- Transcript pipeline logs a warning when none of the extracted voice markers appear in the published text, keeping persistence unaffected.

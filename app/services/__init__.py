@@ -221,6 +221,8 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
         guidance: str | None = None,
         research_content: str | None = None,
         research_sources: Iterable | None = None,
+        author_context: Any | None = None,
+        user_guidance: str | None = None,
     ) -> dict[str, Any]:
         prompt = self._compose_prompt(
             topic=topic,
@@ -229,6 +231,8 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
             guidance=guidance,
             research_content=research_content,
             research_sources=research_sources,
+            author_context=author_context,
+            user_guidance=user_guidance,
         )
         instructions = build_generation_system_instructions()
         return self._execute(user_message=prompt, run_instructions=instructions)
@@ -242,6 +246,8 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
         guidance: str | None,
         research_content: str | None,
         research_sources: Iterable | None,
+        author_context: Any | None,
+        user_guidance: str | None,
     ) -> str:
         return build_generation_brief_topic(
             rubric_name=rubric,
@@ -250,6 +256,8 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
             guidance=guidance,
             research_content=research_content,
             research_sources=research_sources,
+            author_context=author_context,
+            user_guidance=user_guidance,
         )
 
 
@@ -277,6 +285,7 @@ class OpenAIAssistantFromTranscriptGenerator(_BaseAssistantGenerator):
         source_url: str,
         research_content: str | None = None,
         research_sources: Iterable | None = None,
+        author_context: Any | None = None,
     ) -> dict[str, Any]:
         transcript = raw_text.strip()
         user_message = build_generation_brief_transcript(
@@ -287,6 +296,7 @@ class OpenAIAssistantFromTranscriptGenerator(_BaseAssistantGenerator):
             transcript_text=transcript,
             research_content=research_content,
             research_sources=research_sources,
+            author_context=author_context,
         )
         instructions = build_generation_system_instructions(source_url=source_url)
         # TODO: consider using the Responses API with structured outputs once available.

@@ -31,6 +31,7 @@ def generate_article_from_raw(
     generator=None,
     research_content: str | None = None,
     research_sources=None,
+    author_context=None,
 ) -> Post:
     """Generate and publish an article from raw transcript text."""
 
@@ -40,6 +41,7 @@ def generate_article_from_raw(
         source_url=source_url,
         research_content=research_content,
         research_sources=research_sources,
+        author_context=author_context,
     )
     try:
         document = ArticleDocument.model_validate(payload)
@@ -67,5 +69,27 @@ def generate_article_from_raw(
         fallback_topic=fallback_topic,
         rubric_name=rubric_name,
     )
+    _warn_low_voice_match(document, author_context)
     post = persist_article_document(db, document)
     return post
+
+
+def _warn_low_voice_match(document: ArticleDocument, author_context) -> None:
+    if not author_context or not getattr(author_context, "voice_markers", None):
+        return
+
+    full_text_parts = [
+        document.article.headline,
+        document.article.lead,
+        " ".join(section.body for section in document.article.sections),
+    ]
+    full_text = " \n".join(full_text_parts).lower()
+    marker_hits = sum(
+        1
+        for marker in getattr(author_context, "voice_markers", [])
+        if isinstance(marker, str) and marker.lower() in full_text
+    )
+    if marker_hits < 1:
+        logger.warning(
+            "author_voice_low_match slug=%s markers=%s", document.slug, len(author_context.voice_markers)
+        )
