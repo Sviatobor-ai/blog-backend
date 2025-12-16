@@ -7,22 +7,21 @@ import threading
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
+from fastapi import HTTPException
+
 from sqlalchemy.orm import Session
 
 from ..integrations.supadata import (
-    MIN_TRANSCRIPT_CHARS,
     SupaDataClient,
     SupadataTranscriptError,
     SupadataTranscriptTooShortError,
 )
 from ..models import GenJob
 from ..services import ArticleGenerationError, get_transcript_generator
+from .generation_types import ArticleJobGenerator
 from .video_pipeline import generate_article_from_raw
 
 logger = logging.getLogger(__name__)
-
-
-SupaFactory = Callable[[], SupaDataClient]
 
 
 def _now() -> datetime:
@@ -36,12 +35,13 @@ def _finalise_job(
     status: str,
     error: Optional[str] = None,
     article_id: Optional[int] = None,
+    now_provider: Callable[[], datetime] = _now,
 ) -> None:
     job.status = status
     job.error = error
     job.last_error = error
     job.article_id = article_id
-    job.finished_at = _now()
+    job.finished_at = now_provider()
     session.add(job)
     session.commit()
 
@@ -96,10 +96,12 @@ class GenRunner:
         self,
         *,
         session_factory: Callable[[], Session],
-        supadata_factory: SupaFactory,
+        job_generator: ArticleJobGenerator,
+        now_provider: Callable[[], datetime] = _now,
     ) -> None:
         self._session_factory = session_factory
-        self._supadata_factory = supadata_factory
+        self._job_generator = job_generator
+        self._now = now_provider
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -162,7 +164,7 @@ class GenRunner:
         job.status = "running"
         job.error = None
         job.last_error = None
-        job.started_at = _now()
+        job.started_at = self._now()
         session.add(job)
         session.commit()
         session.refresh(job)
@@ -170,80 +172,67 @@ class GenRunner:
         return job
 
     def _process_job(self, session: Session, job: GenJob) -> None:
-        start_time = _now()
+        start_time = self._now()
         url = job.url or job.source_url
         if not url:
             job.status = "skipped"
             job.error = "missing url"
             job.last_error = job.error
-            job.finished_at = _now()
+            job.finished_at = self._now()
             session.add(job)
             session.commit()
             logger.warning("gen-runner job-skip id=%s reason=missing-url", job.id)
             return
 
         try:
-            supadata = self._supadata_factory()
-            transcript = supadata.get_transcript(url=url, mode="auto", text=True)
-            text = (transcript.text or "").strip()
-        except SupadataTranscriptTooShortError as exc:
-            _finalise_job(session, job, status="skipped", error="no transcript text")
-            logger.warning(
-                "gen-runner job-skip id=%s reason=no-text", job.id,
+            response = self._job_generator(session, {"url": url})
+        except SupadataTranscriptTooShortError:
+            _finalise_job(
+                session, job, status="skipped", error="no transcript text", now_provider=self._now
             )
+            logger.warning("gen-runner job-skip id=%s reason=no-text", job.id)
             return
         except SupadataTranscriptError as exc:
             error_message = str(exc)[:500]
-            _finalise_job(session, job, status="failed", error=error_message)
+            _finalise_job(
+                session, job, status="failed", error=error_message, now_provider=self._now
+            )
             logger.warning("gen-runner job-fail id=%s reason=transcript-error err=%s", job.id, exc)
             return
-        except Exception as exc:
-            error_message = str(exc)[:500]
-            _finalise_job(session, job, status="failed", error=error_message)
-            logger.exception("gen-runner job-fail id=%s reason=supadata-exception", job.id)
-            return
-        if not text:
-            _finalise_job(session, job, status="skipped", error="no transcript text")
-            logger.warning("gen-runner job-skip id=%s reason=no-text", job.id)
-            return
-
-        generator = get_transcript_generator()
-        text_chars = len(text)
-        try:
-            text_bytes = len(text.encode("utf-8"))
-        except Exception:  # pragma: no cover - very unlikely encoding errors
-            text_bytes = text_chars
-        logger.info(
-            "gen-runner text-length id=%s chars=%s bytes=%s",
-            job.id,
-            text_chars,
-            text_bytes,
-        )
-        try:
-            post = generate_article_from_raw(
-                session,
-                raw_text=text,
-                source_url=url,
-                generator=generator,
-            )
         except ArticleGenerationError as exc:
             error_message = str(exc)[:500]
-            _finalise_job(session, job, status="failed", error=error_message)
+            _finalise_job(
+                session, job, status="failed", error=error_message, now_provider=self._now
+            )
             logger.warning("gen-runner job-fail id=%s err=%s", job.id, exc)
+            return
+        except HTTPException as exc:
+            error_message = str(exc.detail) if exc.detail else str(exc)
+            status = "failed"
+            if exc.status_code == 422 and isinstance(exc.detail, str):
+                status = "skipped"
+                error_message = "no transcript text"
+            _finalise_job(
+                session, job, status=status, error=error_message[:500], now_provider=self._now
+            )
+            logger.warning("gen-runner job-fail id=%s http-status=%s", job.id, exc.status_code)
             return
         except Exception as exc:  # pragma: no cover - defensive guard
             error_message = str(exc)[:500]
-            _finalise_job(session, job, status="failed", error=error_message)
+            _finalise_job(
+                session, job, status="failed", error=error_message, now_provider=self._now
+            )
             logger.exception("gen-runner unexpected failure id=%s", job.id)
             return
 
-        session.refresh(post)
-        _finalise_job(session, job, status="done", article_id=post.id, error=None)
+        _finalise_job(
+            session, job, status="done", article_id=response.id, error=None, now_provider=self._now
+        )
         elapsed = (job.finished_at - start_time).total_seconds()
         logger.info(
             "gen-runner job-done id=%s article_id=%s secs=%.2f",
             job.id,
-            post.id,
+            response.id,
             elapsed,
         )
 
@@ -251,8 +240,14 @@ class GenRunner:
 _runner: GenRunner | None = None
 
 
-def get_runner(session_factory: Callable[[], Session], supadata_factory: SupaFactory) -> GenRunner:
+def get_runner(
+    session_factory: Callable[[], Session], job_generator: ArticleJobGenerator, now_provider: Callable[[], datetime] = _now
+) -> GenRunner:
     global _runner
     if _runner is None:
-        _runner = GenRunner(session_factory=session_factory, supadata_factory=supadata_factory)
+        _runner = GenRunner(
+            session_factory=session_factory,
+            job_generator=job_generator,
+            now_provider=now_provider,
+        )
     return _runner

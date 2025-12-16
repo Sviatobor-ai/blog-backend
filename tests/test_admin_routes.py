@@ -32,6 +32,10 @@ TOKENS = [
 client = TestClient(app)
 
 
+def _job_generator_for_tests(db, payload):  # pragma: no cover - interface stub
+    raise RuntimeError("generator not configured")
+
+
 def _ensure_admin_tokens() -> None:
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
@@ -273,7 +277,7 @@ def test_admin_status_counts_jobs() -> None:
         )
         session.commit()
 
-    runner = get_runner(lambda: SessionLocal(), get_supadata_client)
+    runner = get_runner(lambda: SessionLocal(), _job_generator_for_tests)
     runner.stop()
 
     response = client.get(
@@ -292,5 +296,5 @@ def test_admin_status_counts_jobs() -> None:
 
 def teardown_module(module):
     app.dependency_overrides.clear()
-    get_runner(lambda: SessionLocal(), get_supadata_client).stop()
+    get_runner(lambda: SessionLocal(), _job_generator_for_tests).stop()
     engine.dispose()

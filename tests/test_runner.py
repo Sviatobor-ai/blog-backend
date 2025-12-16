@@ -13,8 +13,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.db import Base, SessionLocal, engine  # noqa: E402
+from app.integrations.supadata import SupadataTranscriptTooShortError  # noqa: E402
 from app.models import GenJob  # noqa: E402
-from app.integrations.supadata import TranscriptResult  # noqa: E402
 from app.services.runner import GenRunner  # noqa: E402
 
 
@@ -41,13 +41,13 @@ def _create_running_job() -> int:
         return job.id
 
 
-def test_runner_marks_failed_when_supadata_factory_raises():
+def test_runner_marks_failed_when_generator_raises():
     job_id = _create_running_job()
 
-    def factory():
+    def generator(db, payload):  # pragma: no cover - interface stub
         raise RuntimeError("missing supadata key")
 
-    runner = GenRunner(session_factory=SessionLocal, supadata_factory=factory)
+    runner = GenRunner(session_factory=SessionLocal, job_generator=generator)
 
     with SessionLocal() as session:
         job = session.get(GenJob, job_id)
@@ -63,12 +63,12 @@ def test_runner_marks_failed_when_supadata_factory_raises():
 def test_runner_marks_skipped_when_no_text_available():
     job_id = _create_running_job()
 
-    class StubSupaData:
-        def get_transcript(self, *, url: str, mode: str = "auto", text: bool = True):  # pragma: no cover - interface stub
-            return TranscriptResult(text="", lang=None, available_langs=[], content_chars=0)
+    def generator(db, payload):  # pragma: no cover - interface stub
+        raise SupadataTranscriptTooShortError(
+            video_url=str(payload.get("url")), content_chars=0, threshold=10
+        )
 
-    stub = StubSupaData()
-    runner = GenRunner(session_factory=SessionLocal, supadata_factory=lambda: stub)
+    runner = GenRunner(session_factory=SessionLocal, job_generator=generator)
 
     with SessionLocal() as session:
         job = session.get(GenJob, job_id)
