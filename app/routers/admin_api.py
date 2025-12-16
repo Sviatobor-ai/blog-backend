@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,13 +11,17 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth import require_token
+from ..config import get_openai_settings
 from ..db import SessionLocal
 from ..dependencies import get_db, get_supadata_client
 from ..integrations.supadata import SDVideo, SupaDataClient
 from ..models import GenJob
+from ..schemas import ArticleCreateRequest, ArticlePublishResponse
 from ..schemas.generate_now import GenerateNowRequest, GenerateNowResponse
 from ..schemas.queue import PlanQueueRequest, PlanQueueResponse, QueueItem, QueueSnapshotResponse
 from ..schemas_admin import AdminSearchRequest, AdminSearchResponse, AdminSearchVideo
+from ..services import OpenAIAssistantArticleGenerator, get_transcript_generator
+from ..services.generated_article_service import GeneratedArticleService
 from ..services.runner import get_runner, process_url_once
 
 logger = logging.getLogger(__name__)
@@ -26,6 +31,38 @@ admin_api_router = APIRouter(prefix="/admin", tags=["admin-api"])
 
 def _session_factory() -> Session:
     return SessionLocal()
+
+
+_generated_article_service = GeneratedArticleService()
+_transcript_generator = get_transcript_generator()
+
+
+@lru_cache
+def _get_assistant_generator() -> OpenAIAssistantArticleGenerator:
+    settings = get_openai_settings()
+    return OpenAIAssistantArticleGenerator(
+        api_key=settings.api_key,
+        assistant_id=settings.assistant_id,
+        request_timeout_s=settings.request_timeout_s,
+    )
+
+
+def _queue_job_generator(db: Session, payload: dict) -> ArticlePublishResponse:
+    url = payload.get("url") or payload.get("video_url")
+    request_payload = ArticleCreateRequest(
+        topic=str(payload.get("topic") or "Auto article from queue"),
+        rubric_code=payload.get("rubric_code"),
+        keywords=list(payload.get("keywords") or []),
+        guidance=payload.get("guidance"),
+        video_url=url,
+    )
+    return _generated_article_service.create_article(
+        payload=request_payload,
+        db=db,
+        generator=_get_assistant_generator(),
+        transcript_generator=_transcript_generator,
+        supadata_provider=get_supadata_client,
+    )
 
 
 def _video_to_dict(video: SDVideo) -> AdminSearchVideo:
@@ -100,14 +137,14 @@ def plan_queue(
 
 @admin_api_router.post("/run/start", include_in_schema=False)
 def run_start(_: object = Depends(require_token)) -> dict:
-    runner = get_runner(_session_factory, get_supadata_client)
+    runner = get_runner(_session_factory, _queue_job_generator)
     runner.start()
     return {"runner_on": runner.is_on()}
 
 
 @admin_api_router.post("/run/stop", include_in_schema=False)
 def run_stop(_: object = Depends(require_token)) -> dict:
-    runner = get_runner(_session_factory, get_supadata_client)
+    runner = get_runner(_session_factory, _queue_job_generator)
     runner.stop()
     return {"runner_on": runner.is_on()}
 
@@ -132,7 +169,7 @@ def admin_status(
             status_counts["skipped"] += int(count)
         elif status_value == "ready":
             status_counts["done"] += int(count)
-    runner = get_runner(_session_factory, get_supadata_client)
+    runner = get_runner(_session_factory, _queue_job_generator)
     status_counts["runner_on"] = runner.is_on()
     return status_counts
 
