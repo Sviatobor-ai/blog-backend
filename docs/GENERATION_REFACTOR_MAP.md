@@ -94,3 +94,10 @@ This document inventories the current modules, entry points, and supporting flow
 4) "Enhancer seam cleanup" — factor citation handling and research invocation in `ArticleEnhancer` into pure helpers, readying for API exposure.
 5) "Queue runner dependency injection" — allow `GenRunner` to accept generator instances for easier testing and reuse.
 6) "Parallel client dependency provider" — add a configurable provider for `ParallelDeepSearchClient` to align with existing OpenAI/SupaData dependency patterns.
+
+### Refactor updates
+
+- Introduced `app/enhancer/helpers.py` to host reusable enhancer helpers.
+- Research execution is centralized via `run_research_step`, making Parallel search callable outside `ArticleEnhancer`.
+- Citation selection/merge rules now live in pure helpers for deterministic reuse.
+- Enhancement application (sections/FAQ/citations) is handled by `apply_enhancement_updates` for consistent downstream use.
