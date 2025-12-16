@@ -1,0 +1,183 @@
+import os
+import sys
+from copy import deepcopy
+from pathlib import Path
+from typing import Any, Dict
+
+os.environ.setdefault("APP_ENV", "dev")
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_generated_article_service.db")
+os.environ.setdefault("NEXT_PUBLIC_SITE_URL", "https://wiedza.joga.yoga")
+os.environ.setdefault("SUPADATA_KEY", "test-key")
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from app.db import Base, SessionLocal, engine  # noqa: E402
+from sqlalchemy.types import JSON  # noqa: E402
+
+from app.integrations.supadata import TranscriptResult  # noqa: E402
+from app.models import Post  # noqa: E402
+from app.schemas import ArticleCreateRequest  # noqa: E402
+from app.services.generated_article_service import GeneratedArticleService  # noqa: E402
+
+if engine.dialect.name == "sqlite":
+    Post.__table__.c.categories.type = JSON()
+    Post.__table__.c.tags.type = JSON()
+    Post.__table__.c.geo_focus.type = JSON()
+    Post.__table__.c.faq.type = JSON()
+    Post.__table__.c.citations.type = JSON()
+    Post.__table__.c.payload.type = JSON()
+
+
+_BODY_PADDING = (
+    " Ten akapit testowy uzupełnia narrację sekcji i zapewnia wystarczającą długość tekstu "
+    "dla walidacji dokumentu i rozbudowuje opis praktyki na potrzeby testów automatycznych."
+) * 8
+
+SAMPLE_DOCUMENT: Dict[str, Any] = {
+    "topic": "Joga nidra dla początkujących",
+    "slug": "joga-nidra-dla-poczatkujacych",
+    "locale": "pl-PL",
+    "taxonomy": {
+        "section": "Zdrowie i joga",
+        "categories": ["Zdrowie i joga"],
+        "tags": ["joga", "relaks", "mindfulness"],
+    },
+    "seo": {
+        "title": "Joga nidra dla początkujących regeneracja",
+        "description": (
+            "Dowiedz się, jak zacząć praktykę jogi nidry, by uspokoić układ nerwowy, wprowadzić rytuał relaksu"
+            " i zadbać o głęboki sen w domu oraz na wyjazdach wellness."
+        ),
+        "slug": "joga-nidra-dla-poczatkujacych",
+        "canonical": "https://wiedza.joga.yoga/artykuly/joga-nidra-dla-poczatkujacych",
+        "robots": "index,follow",
+    },
+    "article": {
+        "headline": "Pierwsze kroki w jodze nidrze",
+        "lead": (
+            "Joga nidra to prowadzone wejście w stan głębokiego odprężenia, które możesz praktykować podczas "
+            "wieczornych sesji regeneracyjnych oraz w czasie wyjazdów wellness. "
+            "Regularna praktyka pomaga przywrócić równowagę układu nerwowego, zwiększa poczucie bezpieczeństwa i "
+            "wspiera głęboki sen, co ułatwia codzienne funkcjonowanie nawet w intensywnym grafiku zajęć."
+        ),
+        "sections": [
+            {
+                "title": "Czym jest joga nidra",
+                "body": "Opisujemy historię jogi nidry oraz wpływ na układ nerwowy." + _BODY_PADDING,
+            },
+            {
+                "title": "Jak przygotować przestrzeń",
+                "body": "Podpowiadamy, jakie akcesoria i rytuały stworzą atmosferę bezpieczeństwa." + _BODY_PADDING,
+            },
+            {
+                "title": "Przebieg praktyki krok po kroku",
+                "body": "Wskazujemy strukturę sesji od ustawienia intencji po wyjście z relaksu." + _BODY_PADDING,
+            },
+            {
+                "title": "Integracja po zakończeniu",
+                "body": "Proponujemy krótkie notatki refleksji i delikatny ruch, aby utrwalić efekty." + _BODY_PADDING,
+            },
+        ],
+        "citations": [
+            "https://example.com/joga-nidra",
+            "https://example.com/regeneracja"
+        ],
+    },
+    "aeo": {
+        "geo_focus": ["Polska"],
+        "faq": [
+            {
+                "question": "Jak często praktykować jogę nidrę?",
+                "answer": "Dwa lub trzy razy w tygodniu, zachowując spokojne tempo i wygodną pozycję leżącą.",
+            },
+            {
+                "question": "Czy potrzebuję sprzętu do jogi nidry?",
+                "answer": "Wystarczy mata, koc i podparcie pod kolana lub głowę, aby ciało w pełni odpoczęło.",
+            },
+        ],
+    },
+}
+
+
+def _reset_database():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+
+class FakeGenerator:
+    is_configured = True
+
+    def generate_article(self, *, topic: str, rubric: str, keywords=None, guidance=None):
+        document = deepcopy(SAMPLE_DOCUMENT)
+        document["topic"] = topic
+        document["taxonomy"] = dict(document["taxonomy"])
+        document["taxonomy"]["section"] = rubric
+        document["slug"] = document["seo"]["slug"]
+        return document
+
+
+class FakeTranscriptGenerator:
+    is_configured = True
+
+    def __init__(self) -> None:
+        self.called_with: Dict[str, str] | None = None
+
+    def generate_from_transcript(self, *, raw_text: str, source_url: str):
+        self.called_with = {"raw_text": raw_text, "source_url": source_url}
+        document = deepcopy(SAMPLE_DOCUMENT)
+        document["topic"] = "Transkrypcja do artykulu"
+        document["slug"] = "transkrypcja-do-artykulu"
+        document["article"] = dict(document["article"])
+        document["article"]["citations"] = [source_url]
+        return document
+
+
+def test_service_creates_article_without_video():
+    _reset_database()
+    service = GeneratedArticleService()
+    payload = ArticleCreateRequest(topic="Regeneracja z jogą nidrą", rubric_code=None, keywords=["joga"])
+
+    with SessionLocal() as session:
+        response = service.create_article(
+            payload=payload,
+            db=session,
+            generator=FakeGenerator(),
+            transcript_generator=FakeTranscriptGenerator(),
+            supadata_provider=lambda: None,
+        )
+
+    assert response.status == "published"
+    with SessionLocal() as session:
+        stored = session.query(Post).filter(Post.slug == response.slug).one()
+        assert stored.payload["topic"] == payload.topic
+
+
+def test_service_creates_article_from_video_path():
+    _reset_database()
+    service = GeneratedArticleService()
+    transcript_calls = []
+
+    class StubSupadata:
+        def get_transcript(self, *, url: str, lang: str | None = None, mode: str = "auto", text: bool = True):
+            transcript_calls.append(url)
+            payload = "Transkrypcja testowa " * 15
+            return TranscriptResult(text=payload, lang=lang, available_langs=["pl"], content_chars=len(payload))
+
+    transcript_generator = FakeTranscriptGenerator()
+    payload = ArticleCreateRequest(topic="Temat video test", video_url="https://youtube.com/watch?v=video123")
+
+    with SessionLocal() as session:
+        response = service.create_article(
+            payload=payload,
+            db=session,
+            generator=FakeGenerator(),
+            transcript_generator=transcript_generator,
+            supadata_provider=lambda: StubSupadata(),
+        )
+
+    assert response.slug == "transkrypcja-do-artykulu"
+    assert transcript_calls == ["https://youtube.com/watch?v=video123"]
+    assert transcript_generator.called_with is not None
+    assert transcript_generator.called_with["source_url"] == "https://youtube.com/watch?v=video123"
