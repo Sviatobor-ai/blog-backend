@@ -103,3 +103,4 @@ This document inventories the current modules, entry points, and supporting flow
 - Enhancement application (sections/FAQ/citations) is handled by `apply_enhancement_updates` for consistent downstream use.
 - GenRunner now accepts an injected article generator, keeping queue processing decoupled from transcript/publish internals.
 - Admin queue wiring reuses `GeneratedArticleService` via an adapter so background jobs share the HTTP generation path.
+- `ParallelDeepSearchClient` is obtained via `get_parallel_deep_search_client` (enhancer CLI uses the provider) for reuse across flows.

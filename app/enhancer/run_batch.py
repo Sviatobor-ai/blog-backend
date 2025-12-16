@@ -6,11 +6,11 @@ import argparse
 import logging
 from datetime import datetime, timezone
 
-from ..config import get_openai_settings, get_parallel_search_settings
+from ..config import get_openai_settings
 from ..db import SessionLocal
 from . import select_articles_for_enhancement
-from .deep_search import ParallelDeepSearchClient
 from .pipeline import ArticleEnhancer
+from .providers import get_parallel_deep_search_client
 from .writer import EnhancementWriter
 
 logger = logging.getLogger(__name__)
@@ -26,12 +26,7 @@ def run_batch(limit: int | None = None, *, verbose: bool = False) -> None:
 
     _setup_logging(verbose)
     now = datetime.now(timezone.utc)
-    search_settings = get_parallel_search_settings()
-    search_client = ParallelDeepSearchClient(
-        api_key=search_settings.api_key,
-        base_url=search_settings.base_url,
-        timeout_s=search_settings.request_timeout_s,
-    )
+    search_client = get_parallel_deep_search_client()
     openai_settings = get_openai_settings()
     writer = EnhancementWriter(api_key=openai_settings.api_key, timeout_s=openai_settings.request_timeout_s)
     pipeline = ArticleEnhancer(search_client=search_client, writer=writer)
