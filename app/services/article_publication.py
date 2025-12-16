@@ -101,6 +101,30 @@ def _ensure_tags(tags: List[str] | None) -> List[str]:
     return items[:10]
 
 
+def _ensure_context_section_before_faq(document: ArticleDocument) -> ArticleDocument:
+    """Place the context block before FAQ without rewriting content."""
+
+    if not document.aeo.faq:
+        return document
+
+    target_title = "Kontekst i źródła (dla ciekawych)"
+    sections = list(document.article.sections or [])
+
+    context_index = next(
+        (index for index, section in enumerate(sections) if section.title == target_title), None
+    )
+    if context_index is None or context_index == len(sections) - 1:
+        return document
+
+    reordered = list(sections)
+    context_section = reordered.pop(context_index)
+    reordered.append(context_section)
+
+    payload = document.model_dump(mode="json")
+    payload["article"]["sections"] = [section.model_dump() for section in reordered]
+    return ArticleDocument.model_validate(payload)
+
+
 def _ensure_faq(faq_items: List[dict] | None) -> List[dict]:
     sanitized: List[dict] = []
     for item in faq_items or []:
@@ -216,6 +240,7 @@ def prepare_document_for_publication(
     """Normalise slug, canonical URL and taxonomy before persistence."""
 
     normalized_document = normalize_title_fields(document)
+    normalized_document = _ensure_context_section_before_faq(normalized_document)
 
     desired_slug_source = (
         normalized_document.slug

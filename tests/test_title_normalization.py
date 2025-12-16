@@ -116,3 +116,26 @@ def test_prepare_document_for_publication_keeps_slug_and_canonical():
     assert str(prepared.seo.canonical).endswith(prepared.slug)
     assert len(prepared.seo.title) <= 60
     assert len(prepared.article.headline) <= 60
+
+
+def test_prepare_document_moves_context_section_before_faq():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    document = _build_valid_document()
+    context_title = "Kontekst i źródła (dla ciekawych)"
+    context_body = "Definicje i źródła w pigułce. " + ("Uzupełnienie. " * 40)
+    context_section = ArticleSection.model_validate({"title": context_title, "body": context_body})
+    document.article.sections.insert(1, context_section)
+
+    with SessionLocal() as session:
+        prepared = prepare_document_for_publication(
+            session,
+            document,
+            fallback_topic="Zapasy oddechu",
+            rubric_name="Wellness",
+        )
+
+    titles = [section.title for section in prepared.article.sections]
+    assert titles[-1] == context_title
+    assert sorted(titles) == sorted([section.title for section in document.article.sections])
