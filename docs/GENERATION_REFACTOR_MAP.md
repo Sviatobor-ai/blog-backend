@@ -6,10 +6,10 @@ This document inventories the current modules, entry points, and supporting flow
 
 ### Public FastAPI routes (`app/main.py`)
 - `POST /artykuly` → `create_article` →
-  - With `video_url`: fetch transcript via `get_supadata_client` and `get_transcript_generator`, then `generate_article_from_raw` (transcript assistant) → `document_from_post` for response.
+  - With `video_url`: fetch transcript via `get_supadata_client` and `get_transcript_generator`, then `generate_article_from_raw` (transcript assistant) → `document_from_post` (shared publication helper) for response.
   - Without `video_url`: `OpenAIAssistantArticleGenerator.generate_article` → `ArticleDocument.model_validate` → `prepare_document_for_publication` → `persist_article_document`.
 - `GET /artykuly` → `list_articles` → query `Post` ORM for pagination and build `ArticleSummary` objects.
-- `GET /artykuly/{slug}` → `get_article` → load `Post`, fallback to `document_from_post` to hydrate missing fields.
+- `GET /artykuly/{slug}` → `get_article` → load `Post`, fallback to `document_from_post` (shared publication helper) to hydrate missing fields.
 - `GET /rubrics` → `list_rubrics` → query active `Rubric` entries.
 - Legacy duplicates (`include_in_schema=False`): `list_posts_legacy`, `get_post_legacy` wrap the same handlers.
 
@@ -57,7 +57,7 @@ This document inventories the current modules, entry points, and supporting flow
 - Normalization before save: `prepare_document_for_publication` (`app/services/article_publication.py`) slugifies using `slugify_pl` + `ensure_unique_slug`, trims title-like fields to ≤60 characters, fills taxonomy section from rubric, sets `seo.slug` and `seo.canonical` (via `build_canonical_for_slug` or override).
 - Body rendering: `compose_body_mdx` (`app/services/article_utils.py`) turns section dictionaries into MDX string for storage.
 - Persistence: `persist_article_document` writes `Post` with canonical SEO fields, narrative, `faq`, `citations`, and the full `payload`; timestamps `created_at` and `updated_at` default to `datetime.now(timezone.utc)` (overriding DB defaults for new rows).
-- Fallback document builder: `document_from_post` (`app/main.py`) rehydrates `ArticleDocument` from stored payload or columns, applying normalization helpers for missing data (sections, citations, tags, FAQ, canonical).
+- Fallback document builder: `document_from_post` (`app/services/article_publication.py`) rehydrates `ArticleDocument` from stored payload or columns, applying normalization helpers for missing data (sections, citations, tags, FAQ, canonical).
 
 ## E) Current enhancement/enrichment flow
 
@@ -78,7 +78,7 @@ This document inventories the current modules, entry points, and supporting flow
 1) `create_article` in `app/main.py` mixes HTTP concerns with orchestration (transcript fetch, OpenAI calls, persistence); extracting a service-layer coordinator would make routing thinner without changing behavior.
 2) The OpenAI assistant prompt assembly (`_compose_generation_brief` + `_build_system_instructions` in `app/services/__init__.py`) could be exposed as reusable helpers so both standard and transcript generators share a single builder.
 3) `prepare_document_for_publication` currently takes a DB session only for slug uniqueness checks; decoupling slug/SEO normalization from DB writes would let CLI/admin flows reuse the logic before persistence.
-4) `document_from_post` in `app/main.py` re-normalizes missing fields; moving it beside `article_publication` would centralize the canonical post→document conversion for reuse by enhancers or exports.
+4) `document_from_post` in `app/services/article_publication.py` re-normalizes missing fields (moved from `app/main.py`) to centralize the canonical post→document conversion for reuse by enhancers or exports.
 5) `ArticleEnhancer.enhance_post` handles both research and writer orchestration; introducing a separable “research step” (already encapsulated by `ParallelDeepSearchClient.search`) would allow optional precomputation or caching without altering the writer contract.
 6) Citation merging logic (`_merge_single_citation` vs replacement in `app/enhancer/pipeline.py`) is currently private; surfacing a pure helper would enable consistent handling in future routes or background tasks.
 7) `EnhancementWriter._build_user_prompt` in `app/enhancer/writer.py` builds strings from dicts; extracting a structured prompt builder would make it easier to pass enriched research context while keeping the same OpenAI call.
@@ -90,7 +90,7 @@ This document inventories the current modules, entry points, and supporting flow
 
 1) "Route orchestration wrapper" — extract the `/artykuly` creation flow into a dedicated service while keeping handler signatures identical.
 2) "Shared prompt builders" — centralize generation/enhancement prompt assembly utilities for both assistant generators and the enhancement writer.
-3) "Publication helper module" — move `document_from_post` and slug/canonical normalization into a shared publication utility for reuse by enhancers/exporters.
+3) "Publication helper module" — `document_from_post` now lives in the shared publication utility (`app/services/article_publication.py`) for reuse by enhancers/exporters.
 4) "Enhancer seam cleanup" — factor citation handling and research invocation in `ArticleEnhancer` into pure helpers, readying for API exposure.
 5) "Queue runner dependency injection" — allow `GenRunner` to accept generator instances for easier testing and reuse.
 6) "Parallel client dependency provider" — add a configurable provider for `ParallelDeepSearchClient` to align with existing OpenAI/SupaData dependency patterns.
