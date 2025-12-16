@@ -17,7 +17,7 @@ from app.db import Base, SessionLocal, engine  # noqa: E402
 from sqlalchemy.types import JSON  # noqa: E402
 
 from app import config  # noqa: E402
-from app.enhancer.deep_search import DeepSearchResult, DeepSearchSource  # noqa: E402
+from app.enhancer.deep_search import DeepSearchError, DeepSearchResult, DeepSearchSource  # noqa: E402
 from app.integrations.supadata import TranscriptResult  # noqa: E402
 from app.models import Post  # noqa: E402
 from app.schemas import ArticleCreateRequest  # noqa: E402
@@ -248,3 +248,33 @@ def test_service_runs_research_when_enabled():
     assert generator.research_content == "Research summary"
     assert generator.research_sources and generator.research_sources[0].url == "https://example.com/source"
     assert response.status == "published"
+
+
+def test_service_falls_back_when_research_fails():
+    _reset_database()
+    _set_research_flag(True)
+    service = GeneratedArticleService()
+
+    class FailingResearchClient:
+        def search(self, *, title: str, lead: str):  # noqa: ARG002
+            raise DeepSearchError("parallel failure")
+
+    generator = FakeGenerator()
+
+    try:
+        with SessionLocal() as session:
+            payload = ArticleCreateRequest(topic="Fallback without research", rubric_code=None)
+            response = service.create_article(
+                payload=payload,
+                db=session,
+                generator=generator,
+                transcript_generator=FakeTranscriptGenerator(),
+                supadata_provider=lambda: None,
+                research_client_provider=lambda: FailingResearchClient(),
+            )
+    finally:
+        _set_research_flag(False)
+
+    assert response.status == "published"
+    assert generator.research_content is None
+    assert generator.research_sources == []

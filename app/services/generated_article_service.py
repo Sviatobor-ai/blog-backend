@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import asdict, dataclass
 from typing import Callable
 
 from fastapi import HTTPException
@@ -29,6 +30,25 @@ from .video_pipeline import generate_article_from_raw
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class GenerationTelemetry:
+    generation_mode: str
+    research_enabled: bool
+    research_attempted: bool = False
+    research_ok: bool = False
+    research_run_id: str | None = None
+    research_sources_count: int = 0
+    research_duration_ms: int | None = None
+    writer_ok: bool = False
+    writer_duration_ms: int | None = None
+    slug: str | None = None
+    post_id: int | None = None
+    error_stage: str | None = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
 class GeneratedArticleService:
     """Application service orchestrating article creation."""
 
@@ -48,140 +68,173 @@ class GeneratedArticleService:
     ) -> ArticlePublishResponse:
         from .article_publication import document_from_post
 
-        mode = "video" if payload.video_url else "topic"
+        telemetry = GenerationTelemetry(
+            generation_mode="transcript" if payload.video_url else "topic",
+            research_enabled=self._primary_settings.research_enabled,
+        )
         logger.info(
             "article-generation-start mode=%s topic=%s video_url=%s research_enabled=%s",
-            mode,
+            telemetry.generation_mode,
             payload.topic,
             payload.video_url,
-            self._primary_settings.research_enabled,
+            telemetry.research_enabled,
         )
 
-        if payload.video_url:
-            if not transcript_generator.is_configured:
-                raise HTTPException(status_code=503, detail="Transcript generator is not configured")
-            try:
-                supadata = supadata_provider()
-                transcript_result = supadata.get_transcript(
-                    url=str(payload.video_url),
-                    lang="pl",
-                    mode="auto",
-                    text=True,
-                )
-                transcript = (transcript_result.text or "").strip()
-            except SupadataTranscriptTooShortError as exc:
-                logger.warning(
-                    "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
-                    payload.video_url,
-                    exc.content_chars,
-                    exc.threshold,
-                )
-                raise HTTPException(
-                    status_code=422,
-                    detail="Transcript unavailable or too short to generate a reliable article.",
-                ) from exc
-            except SupadataTranscriptError as exc:
-                logger.warning(
-                    "event=supadata.transcript.error video_url=%s status_code=%s err=%s",
-                    payload.video_url,
-                    exc.status_code,
-                    exc.error_body,
-                )
-                status = exc.status_code or 422
-                status_code = 422 if status and 400 <= status < 500 else 503
-                raise HTTPException(
-                    status_code=status_code,
-                    detail="Transcript unavailable for this video. Please choose another video.",
-                ) from exc
-            except Exception as exc:  # pragma: no cover - defensive guard for provider errors
-                logger.warning("transcript-fetch failed url=%s err=%s", payload.video_url, exc)
-                raise HTTPException(
-                    status_code=503,
-                    detail="Transcript unavailable for this video. Please choose another video.",
-                ) from exc
+        try:
+            if payload.video_url:
+                if not transcript_generator.is_configured:
+                    telemetry.error_stage = "writer"
+                    raise HTTPException(
+                        status_code=503, detail="Transcript generator is not configured"
+                    )
+                try:
+                    supadata = supadata_provider()
+                    transcript_result = supadata.get_transcript(
+                        url=str(payload.video_url),
+                        lang="pl",
+                        mode="auto",
+                        text=True,
+                    )
+                    transcript = (transcript_result.text or "").strip()
+                except SupadataTranscriptTooShortError as exc:
+                    telemetry.error_stage = "writer"
+                    logger.warning(
+                        "event=supadata.transcript.too_short video_url=%s content_chars=%s threshold=%s",
+                        payload.video_url,
+                        exc.content_chars,
+                        exc.threshold,
+                    )
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Transcript unavailable or too short to generate a reliable article.",
+                    ) from exc
+                except SupadataTranscriptError as exc:
+                    telemetry.error_stage = "writer"
+                    logger.warning(
+                        "event=supadata.transcript.error video_url=%s status_code=%s err=%s",
+                        payload.video_url,
+                        exc.status_code,
+                        exc.error_body,
+                    )
+                    status = exc.status_code or 422
+                    status_code = 422 if status and 400 <= status < 500 else 503
+                    raise HTTPException(
+                        status_code=status_code,
+                        detail="Transcript unavailable for this video. Please choose another video.",
+                    ) from exc
+                except Exception as exc:  # pragma: no cover - defensive guard for provider errors
+                    telemetry.error_stage = "writer"
+                    logger.warning("transcript-fetch failed url=%s err=%s", payload.video_url, exc)
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Transcript unavailable for this video. Please choose another video.",
+                    ) from exc
 
+                research_summary: str | None = None
+                research_sources = []
+                transcript_excerpt = transcript[:800]
+                author_context = build_author_context_from_transcript(transcript)
+                rubric_name = _resolve_rubric_name(payload, db)
+                if self._primary_settings.research_enabled:
+                    research_summary, research_sources = self._run_research(
+                        payload=payload,
+                        mode=telemetry.generation_mode,
+                        transcript_excerpt=transcript_excerpt,
+                        rubric_name=rubric_name,
+                        client_provider=research_client_provider,
+                        telemetry=telemetry,
+                    )
+
+                writer_started = time.monotonic()
+                try:
+                    post = generate_article_from_raw(
+                        db,
+                        raw_text=transcript,
+                        source_url=str(payload.video_url),
+                        generator=transcript_generator,
+                        research_content=research_summary,
+                        research_sources=research_sources,
+                        author_context=author_context,
+                    )
+                    telemetry.writer_ok = True
+                except ArticleGenerationError as exc:
+                    telemetry.error_stage = "writer"
+                    raise HTTPException(status_code=502, detail=str(exc)) from exc
+                finally:
+                    telemetry.writer_duration_ms = _duration_ms(writer_started)
+
+                document = document_from_post(post)
+                telemetry.slug = post.slug
+                telemetry.post_id = post.id
+                _log_generation_success(telemetry)
+                return ArticlePublishResponse(slug=post.slug, id=post.id, post=document)
+
+            if not generator.is_configured:
+                telemetry.error_stage = "writer"
+                raise HTTPException(status_code=503, detail="OpenAI API key is not configured")
+            rubric_name = _resolve_rubric_name(payload, db)
             research_summary: str | None = None
             research_sources = []
-            transcript_excerpt = transcript[:800]
-            author_context = build_author_context_from_transcript(transcript)
-            rubric_name = _resolve_rubric_name(payload, db)
             if self._primary_settings.research_enabled:
                 research_summary, research_sources = self._run_research(
                     payload=payload,
-                    mode=mode,
-                    transcript_excerpt=transcript_excerpt,
+                    mode=telemetry.generation_mode,
+                    transcript_excerpt=None,
                     rubric_name=rubric_name,
                     client_provider=research_client_provider,
+                    telemetry=telemetry,
                 )
-
+            writer_started = time.monotonic()
             try:
-                post = generate_article_from_raw(
-                    db,
-                    raw_text=transcript,
-                    source_url=str(payload.video_url),
-                    generator=transcript_generator,
+                raw_document = generator.generate_article(
+                    topic=payload.topic,
+                    rubric=rubric_name,
+                    keywords=payload.keywords,
+                    guidance=payload.guidance,
                     research_content=research_summary,
                     research_sources=research_sources,
-                    author_context=author_context,
+                    author_context=None,
+                    user_guidance=payload.guidance,
                 )
+                telemetry.writer_ok = True
             except ArticleGenerationError as exc:
+                telemetry.error_stage = "writer"
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
-            document = document_from_post(post)
-            logger.info("article-generation-done mode=video slug=%s id=%s", post.slug, post.id)
-            return ArticlePublishResponse(slug=post.slug, id=post.id, post=document)
+            finally:
+                telemetry.writer_duration_ms = _duration_ms(writer_started)
 
-        if not generator.is_configured:
-            raise HTTPException(status_code=503, detail="OpenAI API key is not configured")
-        rubric_name = _resolve_rubric_name(payload, db)
-        research_summary: str | None = None
-        research_sources = []
-        if self._primary_settings.research_enabled:
-            research_summary, research_sources = self._run_research(
-                payload=payload,
-                mode=mode,
-                transcript_excerpt=None,
-                rubric_name=rubric_name,
-                client_provider=research_client_provider,
-            )
-        try:
-            raw_document = generator.generate_article(
-                topic=payload.topic,
-                rubric=rubric_name,
-                keywords=payload.keywords,
-                guidance=payload.guidance,
-                research_content=research_summary,
-                research_sources=research_sources,
-                author_context=None,
-                user_guidance=payload.guidance,
-            )
-        except ArticleGenerationError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-        try:
-            document = ArticleDocument.model_validate(raw_document)
-        except (ValueError, ValidationError) as exc:
             try:
-                serialized = json.dumps(raw_document, ensure_ascii=False)
-            except TypeError:
-                serialized = str(raw_document)
-            preview = serialized if len(serialized) <= 800 else f"{serialized[:800]}…"
-            logger.warning("assistant-draft invalid manual reason=%s payload=%s", exc, preview)
-            raise HTTPException(status_code=502, detail=f"Invalid article payload: {exc}") from exc
+                document = ArticleDocument.model_validate(raw_document)
+            except (ValueError, ValidationError) as exc:
+                telemetry.error_stage = "writer"
+                try:
+                    serialized = json.dumps(raw_document, ensure_ascii=False)
+                except TypeError:
+                    serialized = str(raw_document)
+                preview = serialized if len(serialized) <= 800 else f"{serialized[:800]}…"
+                logger.warning("assistant-draft invalid manual reason=%s payload=%s", exc, preview)
+                raise HTTPException(status_code=502, detail=f"Invalid article payload: {exc}") from exc
 
-        document = prepare_document_for_publication(
-            db,
-            document,
-            fallback_topic=payload.topic,
-            rubric_name=rubric_name,
-        )
+            document = prepare_document_for_publication(
+                db,
+                document,
+                fallback_topic=payload.topic,
+                rubric_name=rubric_name,
+            )
 
-        try:
-            post = persist_article_document(db, document)
-        except ArticleGenerationError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            try:
+                post = persist_article_document(db, document)
+            except ArticleGenerationError as exc:
+                telemetry.error_stage = "publish"
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-        logger.info("article-generation-done mode=topic slug=%s id=%s", post.slug, post.id)
-        return ArticlePublishResponse(slug=post.slug, id=post.id, post=document)
+            telemetry.slug = post.slug
+            telemetry.post_id = post.id
+            _log_generation_success(telemetry)
+            return ArticlePublishResponse(slug=post.slug, id=post.id, post=document)
+        except Exception as exc:
+            _log_generation_failure(telemetry, exc)
+            raise
 
     def create_article(
         self,
@@ -212,6 +265,7 @@ class GeneratedArticleService:
         transcript_excerpt: str | None,
         rubric_name: str | None,
         client_provider: Callable[[], ParallelDeepSearchClient] | None,
+        telemetry: GenerationTelemetry,
     ) -> tuple[str | None, list]:
         prompt = build_research_prompt(
             payload,
@@ -221,16 +275,39 @@ class GeneratedArticleService:
         )
         topic = _derive_topic(payload, transcript_excerpt)
         provider = _select_client_provider(client_provider)
+        try:
+            client = provider()
+        except DeepSearchError as exc:
+            telemetry.research_ok = False
+            telemetry.error_stage = telemetry.error_stage or "research"
+            logger.warning("event=research_skipped_missing_config reason=%s", exc)
+            return None, []
+        except Exception as exc:  # pragma: no cover - defensive guard for provider errors
+            telemetry.research_ok = False
+            telemetry.error_stage = telemetry.error_stage or "research"
+            _log_research_failure(exc)
+            return None, []
+        telemetry.research_attempted = True
         started_at = time.monotonic()
         try:
-            result = provider().search(title=topic, lead=prompt)
+            result = client.search(title=topic, lead=prompt)
         except DeepSearchError as exc:
+            telemetry.research_ok = False
+            telemetry.research_duration_ms = _duration_ms(started_at)
+            telemetry.error_stage = telemetry.error_stage or "research"
             _log_research_failure(exc)
             return None, []
         except Exception as exc:  # pragma: no cover - defensive guard
+            telemetry.research_ok = False
+            telemetry.research_duration_ms = _duration_ms(started_at)
+            telemetry.error_stage = telemetry.error_stage or "research"
             _log_research_failure(exc)
             return None, []
-        summary, sources = _normalize_research_result(result)
+        telemetry.research_duration_ms = _duration_ms(started_at)
+        summary, sources, run_id = _normalize_research_result(result)
+        telemetry.research_ok = True
+        telemetry.research_sources_count = len(sources)
+        telemetry.research_run_id = run_id
         _log_research_success(started_at, len(sources))
         return summary, sources
 
@@ -309,12 +386,13 @@ def _select_client_provider(
     return client_provider or get_parallel_deep_search_client
 
 
-def _normalize_research_result(result) -> tuple[str | None, list]:
+def _normalize_research_result(result) -> tuple[str | None, list, str | None]:
     if not result:
-        return None, []
+        return None, [], None
     summary = result.summary if getattr(result, "summary", None) else None
     sources = result.sources if getattr(result, "sources", None) else []
-    return summary, sources
+    run_id = result.run_id if getattr(result, "run_id", None) else None
+    return summary, sources, run_id
 
 
 def _log_research_failure(exc: Exception) -> None:
@@ -324,4 +402,20 @@ def _log_research_failure(exc: Exception) -> None:
 def _log_research_success(started_at: float, sources_count: int) -> None:
     elapsed = time.monotonic() - started_at
     logger.info("research-step done sources=%s duration_s=%.2f", sources_count, elapsed)
+
+
+def _log_generation_success(telemetry: GenerationTelemetry) -> None:
+    logger.info("event=article_generation_completed telemetry=%s", telemetry.to_dict())
+
+
+def _log_generation_failure(telemetry: GenerationTelemetry, exc: Exception) -> None:
+    logger.exception(
+        "event=article_generation_failed telemetry=%s error=%s",
+        telemetry.to_dict(),
+        exc,
+    )
+
+
+def _duration_ms(started_at: float) -> int:
+    return int((time.monotonic() - started_at) * 1000)
 

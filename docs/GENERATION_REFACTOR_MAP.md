@@ -118,3 +118,9 @@ This document inventories the current modules, entry points, and supporting flow
 - Cytowania mają wykorzystywać najlepiej dopasowane linki z research_sources zamiast przeładowania listy.
 - Strażnik `_ensure_context_section_before_faq` w `app/services/article_publication.py` przenosi sekcję „Kontekst i źródła (dla ciekawych)” na koniec sekcji, jeśli FAQ istnieje.
 - Enhancement writer (`app/enhancer/writer.py`) otrzymał tę samą wskazówkę: utrzymuj narrację autora, research dodawaj jako krótkie wstawki lub kompaktowy blok kontekstu.
+
+## Observability
+
+- Primary research and writer orchestration runs inside `GeneratedArticleService.generate_and_publish` (`app/services/generated_article_service.py`).
+- When Parallel research fails or is unavailable, the service logs `error_stage="research"` and continues with writer-only generation (no HTTP 500).
+- Look for structured events `article_generation_completed` / `article_generation_failed` and warnings `research_skipped_missing_config` to trace end-to-end behavior.
