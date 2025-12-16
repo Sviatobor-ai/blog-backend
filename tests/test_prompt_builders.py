@@ -30,7 +30,7 @@ def test_topic_brief_includes_inputs():
     assert "Rubryka redakcyjna: Zdrowie i joga." in prompt
     assert "Temat przewodni artykułu: Regeneracja po intensywnej praktyce." in prompt
     assert "słowa kluczowe SEO: odpoczynek, rozciaganie." in prompt
-    assert "Dodatkowe wytyczne redakcyjne: Podaj praktyczne przykłady." in prompt
+    assert "Wytyczne redakcyjne: Podaj praktyczne przykłady." in prompt
 
 
 def test_transcript_brief_includes_transcript_and_guidance():

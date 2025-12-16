@@ -102,7 +102,8 @@ class EnhancementWriter:
             "   W treści umieść konkretne wskazówki, przykłady lub dane zaczerpnięte z badań.\n"
             "2. Dodaj jedno nowe pytanie FAQ wraz z odpowiedzią, inspirowane świeżymi insightami.\n"
             "3. Nie kopiuj istniejących akapitów. Korzystaj z linków i streszczenia powyżej, łącząc je z kontekstem joga.yoga.\n"
-            "4. Odpowiedz WYŁĄCZNIE w formacie JSON: {\"added_sections\": [{title, body}, ...], \"added_faq\": {question, answer}}."
+            "4. Jeśli w kontekście masz autora (np. autor_name lub 'autor nagrania'), możesz przypisywać opinie autorowi, ale nie wymyślaj nowych nazw. Gdy brak imienia, pisz neutralnie ('autor nagrania').\n"
+            "5. Odpowiedz WYŁĄCZNIE w formacie JSON: {\"added_sections\": [{title, body}, ...], \"added_faq\": {question, answer}}."
         )
 
     def _extract_text(self, response: Any) -> str:

@@ -124,6 +124,8 @@ class FakeGenerator:
         guidance=None,
         research_content=None,
         research_sources=None,
+        author_context=None,
+        user_guidance=None,
     ):
         self.research_content = research_content
         self.research_sources = research_sources
@@ -148,6 +150,7 @@ class FakeTranscriptGenerator:
         source_url: str,
         research_content=None,
         research_sources=None,
+        author_context=None,
     ):
         self.called_with = {"raw_text": raw_text, "source_url": source_url}
         document = deepcopy(SAMPLE_DOCUMENT)

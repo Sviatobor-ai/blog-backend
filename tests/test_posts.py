@@ -210,7 +210,18 @@ client = TestClient(app)
 class FakeGenerator:
     is_configured = True
 
-    def generate_article(self, *, topic: str, rubric: str, keywords=None, guidance=None):
+    def generate_article(
+        self,
+        *,
+        topic: str,
+        rubric: str,
+        keywords=None,
+        guidance=None,
+        research_content=None,
+        research_sources=None,
+        author_context=None,
+        user_guidance=None,
+    ):
         document = deepcopy(SAMPLE_DOCUMENT)
         document["topic"] = topic
         document["taxonomy"] = dict(document["taxonomy"])
@@ -222,14 +233,22 @@ class FakeGenerator:
 class InvalidGenerator:
     is_configured = True
 
-    def generate_article(self, *, topic: str, rubric: str, keywords=None, guidance=None):
+    def generate_article(self, *, topic: str, rubric: str, keywords=None, guidance=None, **_: dict):
         return {"slug": 123}
 
 
 class FakeTranscriptGenerator:
     is_configured = True
 
-    def generate_from_transcript(self, *, raw_text: str, source_url: str):
+    def generate_from_transcript(
+        self,
+        *,
+        raw_text: str,
+        source_url: str,
+        research_content=None,
+        research_sources=None,
+        author_context=None,
+    ):
         document = deepcopy(SAMPLE_DOCUMENT)
         document["topic"] = "Transkrypcja do artykulu"
         document["slug"] = "transkrypcja-do-artykulu"

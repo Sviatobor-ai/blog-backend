@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_primary_generation_settings
 from ..enhancer.deep_search import DeepSearchError, ParallelDeepSearchClient
+from ..services.author_context import build_author_context_from_transcript
 from ..enhancer.providers import get_parallel_deep_search_client
 from ..integrations.supadata import (
     SupaDataClient,
@@ -102,6 +103,7 @@ class GeneratedArticleService:
             research_summary: str | None = None
             research_sources = []
             transcript_excerpt = transcript[:800]
+            author_context = build_author_context_from_transcript(transcript)
             rubric_name = _resolve_rubric_name(payload, db)
             if self._primary_settings.research_enabled:
                 research_summary, research_sources = self._run_research(
@@ -120,6 +122,7 @@ class GeneratedArticleService:
                     generator=transcript_generator,
                     research_content=research_summary,
                     research_sources=research_sources,
+                    author_context=author_context,
                 )
             except ArticleGenerationError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -148,6 +151,8 @@ class GeneratedArticleService:
                 guidance=payload.guidance,
                 research_content=research_summary,
                 research_sources=research_sources,
+                author_context=None,
+                user_guidance=payload.guidance,
             )
         except ArticleGenerationError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -319,3 +324,4 @@ def _log_research_failure(exc: Exception) -> None:
 def _log_research_success(started_at: float, sources_count: int) -> None:
     elapsed = time.monotonic() - started_at
     logger.info("research-step done sources=%s duration_s=%.2f", sources_count, elapsed)
+
