@@ -219,12 +219,16 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
         rubric: str,
         keywords: Iterable[str] | None = None,
         guidance: str | None = None,
+        research_content: str | None = None,
+        research_sources: Iterable | None = None,
     ) -> dict[str, Any]:
         prompt = self._compose_prompt(
             topic=topic,
             rubric=rubric,
             keywords=keywords,
             guidance=guidance,
+            research_content=research_content,
+            research_sources=research_sources,
         )
         instructions = build_generation_system_instructions()
         return self._execute(user_message=prompt, run_instructions=instructions)
@@ -236,12 +240,16 @@ class OpenAIAssistantArticleGenerator(_BaseAssistantGenerator):
         rubric: str,
         keywords: Iterable[str] | None,
         guidance: str | None,
+        research_content: str | None,
+        research_sources: Iterable | None,
     ) -> str:
         return build_generation_brief_topic(
             rubric_name=rubric,
             topic=topic,
             keywords=keywords,
             guidance=guidance,
+            research_content=research_content,
+            research_sources=research_sources,
         )
 
 
@@ -262,7 +270,14 @@ class OpenAIAssistantFromTranscriptGenerator(_BaseAssistantGenerator):
             request_timeout_s=request_timeout_s,
         )
 
-    def generate_from_transcript(self, *, raw_text: str, source_url: str) -> dict[str, Any]:
+    def generate_from_transcript(
+        self,
+        *,
+        raw_text: str,
+        source_url: str,
+        research_content: str | None = None,
+        research_sources: Iterable | None = None,
+    ) -> dict[str, Any]:
         transcript = raw_text.strip()
         user_message = build_generation_brief_transcript(
             rubric_name=None,
@@ -270,6 +285,8 @@ class OpenAIAssistantFromTranscriptGenerator(_BaseAssistantGenerator):
             keywords=None,
             guidance=None,
             transcript_text=transcript,
+            research_content=research_content,
+            research_sources=research_sources,
         )
         instructions = build_generation_system_instructions(source_url=source_url)
         # TODO: consider using the Responses API with structured outputs once available.

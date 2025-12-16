@@ -29,6 +29,8 @@ def generate_article_from_raw(
     raw_text: str,
     source_url: str,
     generator=None,
+    research_content: str | None = None,
+    research_sources=None,
 ) -> Post:
     """Generate and publish an article from raw transcript text."""
 
@@ -36,6 +38,8 @@ def generate_article_from_raw(
     payload = transcript_generator.generate_from_transcript(
         raw_text=raw_text,
         source_url=source_url,
+        research_content=research_content,
+        research_sources=research_sources,
     )
     try:
         document = ArticleDocument.model_validate(payload)
