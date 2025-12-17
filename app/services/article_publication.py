@@ -42,6 +42,36 @@ DEFAULT_FAQ = [
 ]
 
 
+def sanitize_faq(faq_items: list[dict] | None) -> list[dict]:
+    if not faq_items:
+        return []
+
+    sanitized: List[dict] = []
+    seen_questions = set()
+
+    for item in faq_items:
+        if not isinstance(item, dict):
+            continue
+
+        question_raw = "" if item is None else str(item.get("question", ""))
+        answer_raw = "" if item is None else str(item.get("answer", ""))
+
+        question = " ".join(question_raw.split()).strip()
+        answer = " ".join(answer_raw.split()).strip()
+
+        if not question or not answer:
+            continue
+
+        normalized_question = question.casefold()
+        if normalized_question in seen_questions:
+            continue
+
+        seen_questions.add(normalized_question)
+        sanitized.append({"question": question, "answer": answer})
+
+    return sanitized
+
+
 def _normalize_text(value: str) -> str:
     return " ".join((value or "").split())
 
@@ -141,10 +171,38 @@ def _ensure_faq(faq_items: List[dict] | None) -> List[dict]:
     return [dict(item) for item in sanitized[:3]]
 
 
+def _apply_sanitized_faq_data(document_data: dict, *, slug: str | None = None) -> dict:
+    original_items = document_data.get("aeo", {}).get("faq")
+    sanitized = sanitize_faq(original_items)
+    removed_count = len(original_items or []) - len(sanitized)
+
+    if removed_count > 0:
+        logging.info(
+            "event=faq_sanitized removed_count=%s kept_count=%s slug=%s",
+            removed_count,
+            len(sanitized),
+            slug,
+        )
+
+    document_data.setdefault("aeo", {})["faq"] = sanitized
+    return document_data
+
+
+def _validate_or_construct_document(document_data: dict, *, slug: str | None = None) -> ArticleDocument:
+    try:
+        return ArticleDocument.model_validate(document_data)
+    except ValidationError as exc:
+        logging.warning(
+            "faq-sanitization validation fallback slug=%s error=%s", slug or document_data.get("slug"), exc
+        )
+        return ArticleDocument.model_construct(**document_data)
+
+
 def document_from_post(post: Post) -> ArticleDocument:
     if post.payload:
         try:
-            return ArticleDocument.model_validate(post.payload)
+            sanitized_payload = _apply_sanitized_faq_data(dict(post.payload), slug=post.slug)
+            return _validate_or_construct_document(sanitized_payload, slug=post.slug)
         except (ValueError, ValidationError) as exc:
             logging.warning(
                 "Stored payload for slug %s is invalid, falling back to columns: %s",
@@ -199,7 +257,8 @@ def document_from_post(post: Post) -> ArticleDocument:
             "faq": faq,
         },
     }
-    return ArticleDocument.model_validate(fallback_document)
+    sanitized_fallback = _apply_sanitized_faq_data(fallback_document, slug=post.slug)
+    return _validate_or_construct_document(sanitized_fallback, slug=post.slug)
 
 
 def _trim_title_value(value: str, max_len: int) -> str:
@@ -262,15 +321,28 @@ def prepare_document_for_publication(
     document_data.setdefault("taxonomy", {})["section"] = rubric_name
     document_data.setdefault("seo", {})["slug"] = final_slug
     document_data["seo"]["canonical"] = canonical
-    return ArticleDocument.model_validate(document_data)
+    sanitized_data = _apply_sanitized_faq_data(document_data, slug=final_slug)
+    return _validate_or_construct_document(sanitized_data, slug=final_slug)
 
 
-def persist_article_document(db: Session, document: ArticleDocument) -> Post:
+def persist_article_document(
+    db: Session, document: ArticleDocument, *, extra_payload: dict | None = None
+) -> Post:
     """Store the provided article document and return the created Post."""
 
     body_mdx = compose_body_mdx([section.model_dump() for section in document.article.sections])
     if not body_mdx:
         raise ArticleGenerationError("Assistant returned empty article sections")
+
+    payload = document.model_dump(mode="json")
+    if extra_payload:
+        merged_payload = {**payload}
+        for key, value in extra_payload.items():
+            if isinstance(value, dict) and isinstance(merged_payload.get(key), dict):
+                merged_payload[key] = {**merged_payload.get(key, {}), **value}
+            else:
+                merged_payload[key] = value
+        payload = merged_payload
 
     post = Post(
         slug=document.slug,
@@ -288,7 +360,7 @@ def persist_article_document(db: Session, document: ArticleDocument) -> Post:
         geo_focus=document.aeo.geo_focus,
         faq=[faq.model_dump() for faq in document.aeo.faq],
         citations=[str(url) for url in document.article.citations],
-        payload=document.model_dump(mode="json"),
+        payload=payload,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )

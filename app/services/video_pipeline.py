@@ -28,6 +28,7 @@ def generate_article_from_raw(
     *,
     raw_text: str,
     source_url: str,
+    source_key: str | None = None,
     generator=None,
     research_content: str | None = None,
     research_sources=None,
@@ -70,7 +71,8 @@ def generate_article_from_raw(
         rubric_name=rubric_name,
     )
     _warn_low_voice_match(document, author_context)
-    post = persist_article_document(db, document)
+    extra_payload = {"meta": {"source_key": source_key}} if source_key else None
+    post = persist_article_document(db, document, extra_payload=extra_payload)
     return post
 
 

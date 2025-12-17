@@ -210,6 +210,48 @@ def test_service_creates_article_from_video_path():
     assert transcript_generator.called_with["source_url"] == "https://youtube.com/watch?v=video123"
 
 
+def test_video_path_uses_existing_post_for_same_source_key():
+    _reset_database()
+    service = GeneratedArticleService()
+
+    class StubSupadata:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get_transcript(self, *, url: str, lang: str | None = None, mode: str = "auto", text: bool = True):
+            self.calls += 1
+            payload = "Transkrypcja testowa " * 15
+            return TranscriptResult(text=payload, lang=lang, available_langs=["pl"], content_chars=len(payload))
+
+    transcript_generator = FakeTranscriptGenerator()
+    payload = ArticleCreateRequest(topic="Temat video test", video_url="https://youtu.be/video123")
+
+    with SessionLocal() as session:
+        stub = StubSupadata()
+        first_response = service.create_article(
+            payload=payload,
+            db=session,
+            generator=FakeGenerator(),
+            transcript_generator=transcript_generator,
+            supadata_provider=lambda: stub,
+        )
+        assert stub.calls == 1
+
+    with SessionLocal() as session:
+        dedup_stub = StubSupadata()
+        second_response = service.create_article(
+            payload=payload,
+            db=session,
+            generator=FakeGenerator(),
+            transcript_generator=FakeTranscriptGenerator(),
+            supadata_provider=lambda: dedup_stub,
+        )
+        assert dedup_stub.calls == 0
+
+    assert first_response.slug == second_response.slug
+    assert first_response.id == second_response.id
+
+
 def _set_research_flag(enabled: bool) -> None:
     os.environ["PRIMARY_GENERATION_RESEARCH_ENABLED"] = "true" if enabled else "false"
     config.get_primary_generation_settings.cache_clear()
