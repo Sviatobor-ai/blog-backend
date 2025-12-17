@@ -108,7 +108,7 @@ def get_primary_generation_settings() -> PrimaryGenerationSettings:
 def get_site_base_url() -> str:
     """Return the public base URL for the published site."""
 
-    base_url = os.getenv("NEXT_PUBLIC_SITE_URL") or "https://joga.yoga"
+    base_url = os.getenv("NEXT_PUBLIC_SITE_URL") or "https://wiedza.joga.yoga"
     return base_url.rstrip("/")
 
 

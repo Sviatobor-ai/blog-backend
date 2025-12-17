@@ -73,7 +73,7 @@ class EnhancementWriter:
 
     def _build_system_prompt(self) -> str:
         return (
-            "Jesteś redaktorem joga.yoga. Piszesz po polsku, ciepłym i eksperckim tonem."
+            "Jesteś redaktorem wiedza.joga.yoga. Piszesz po polsku, ciepłym i eksperckim tonem."
             " Uzupełniasz istniejący artykuł o co najmniej dwie nowe sekcje H2 bazując"
             " na świeżych materiałach zewnętrznych oraz dodajesz jedno pytanie FAQ."
             " Nie używasz technicznych nagłówków ani dat w tytułach."
@@ -91,7 +91,7 @@ class EnhancementWriter:
         )
         insights = request.insights or "Brak dodatkowego streszczenia — wykorzystaj kontekst z linków."
         return (
-            "Aktualny artykuł joga.yoga:\n"
+            "Aktualny artykuł wiedza.joga.yoga:\n"
             f"Nagłówek: {request.headline}\n"
             f"Lead: {request.lead}\n"
             f"Sekcje:\n{section_summaries}\n\n"
@@ -103,7 +103,7 @@ class EnhancementWriter:
             "   Każda sekcja ma mieć chwytliwy tytuł H2 po polsku (bez dat, bez frazy 'Dopelniono').\n"
             "   W treści umieść konkretne wskazówki, przykłady lub dane zaczerpnięte z badań.\n"
             "2. Dodaj jedno nowe pytanie FAQ wraz z odpowiedzią, inspirowane świeżymi insightami.\n"
-            "3. Nie kopiuj istniejących akapitów. Korzystaj z linków i streszczenia powyżej, łącząc je z kontekstem joga.yoga.\n"
+            "3. Nie kopiuj istniejących akapitów. Korzystaj z linków i streszczenia powyżej, łącząc je z kontekstem wiedza.joga.yoga.\n"
             "4. Jeśli w kontekście masz autora (np. autor_name lub 'autor nagrania'), możesz przypisywać opinie autorowi, ale nie wymyślaj nowych nazw. Gdy brak imienia, pisz neutralnie ('autor nagrania').\n"
             "5. Odpowiedz WYŁĄCZNIE w formacie JSON: {\"added_sections\": [{title, body}, ...], \"added_faq\": {question, answer}}."
         )

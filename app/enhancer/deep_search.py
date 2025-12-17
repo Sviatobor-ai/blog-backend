@@ -84,7 +84,7 @@ class ParallelDeepSearchClient:
 
     def _build_prompt(self, *, title: str, lead: str) -> str:
         lines = [
-            "Przeprowadź pogłębione, ale zwięzłe badanie tematu związanego z artykułem na blogu joga.yoga.",
+            "Przeprowadź pogłębione, ale zwięzłe badanie tematu związanego z artykułem na blogu wiedza.joga.yoga.",
             "Potrzebujemy aktualnych i wiarygodnych informacji, które pomogą uzupełnić istniejący tekst,",
             "a nie napisać zupełnie nowy artykuł od zera.",
             "",

@@ -82,7 +82,7 @@ class OpenAIClient:
         thread_id: str,
         assistant_id: str,
         instructions: str | None = None,
-        timeout_s: float = 120.0,
+        timeout_s: float = 360.0,
     ) -> str:
         """Execute the assistant and return the combined assistant message text."""
 
