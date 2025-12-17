@@ -42,7 +42,7 @@ def _compose_generation_brief(
     guidance: str | None,
     transcript: str | None = None,
     research_content: str | None = None,
-    research_sources: Iterable | None = None,
+    research_sources: Iterable[object] | None = None,
     author_context: AuthorContext | None = None,
     user_guidance: str | None = None,
 ) -> str:
@@ -144,25 +144,27 @@ def build_generation_brief_topic(
 def build_generation_brief_transcript(
     *,
     transcript_text: str,
-    rubric_name: str | None,
-    keywords: Iterable[str] | None,
-    guidance: str | None,
+    rubric_name: str | None = None,
+    topic: str | None = None,
+    keywords: Iterable[str] | None = None,
+    guidance: str | None = None,
     research_content: str | None = None,
-    research_sources: Iterable | None = None,
+    research_sources: Iterable[object] | None = None,
     author_context: AuthorContext | None = None,
+    user_guidance: str | None = None,
 ) -> str:
     """Compose a user brief for transcript-driven article generation."""
 
     return _compose_generation_brief(
         rubric=rubric_name,
-        topic=None,
+        topic=topic,
         keywords=keywords,
         guidance=guidance,
         transcript=transcript_text,
         research_content=research_content,
         research_sources=research_sources,
         author_context=author_context,
-        user_guidance=guidance,
+        user_guidance=user_guidance or guidance,
     )
 
 
@@ -172,6 +174,7 @@ def build_generation_system_instructions(*, source_url: str | None = None) -> st
     canonical_base = get_site_base_url().rstrip("/")
     parts = [
         "You are the content architect for joga.yoga and respond exclusively in Polish (pl-PL).",
+        "Bez względu na język materiałów wejściowych zawsze twórz odpowiedź w pl-PL.",
         "Always return exactly one JSON object containing: topic, slug, locale, taxonomy, seo, article, aeo.",
         "Craft a captivating lead made of several rich paragraphs that invite the reader in.",
         "Twórz rozbudowane sekcje dopasowane do materiału, zamiast powtarzalnego układu.",
