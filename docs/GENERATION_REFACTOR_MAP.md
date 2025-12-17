@@ -119,6 +119,11 @@ This document inventories the current modules, entry points, and supporting flow
 - Strażnik `_ensure_context_section_before_faq` w `app/services/article_publication.py` przenosi sekcję „Kontekst i źródła (dla ciekawych)” na koniec sekcji, jeśli FAQ istnieje.
 - Enhancement writer (`app/enhancer/writer.py`) otrzymał tę samą wskazówkę: utrzymuj narrację autora, research dodawaj jako krótkie wstawki lub kompaktowy blok kontekstu.
 
+## Stability hardening (minimal)
+
+- FAQ sanitization in `app/services/article_publication.py` removes empty/duplicate entries (whitespace-trimmed, case-insensitive questions) before persistence and when returning posts.
+- Video anti-duplicate logic in `app/services/generated_article_service.py` derives a `source_key` (e.g., `youtube:<id>`) stored under `payload.meta.source_key` and reuses the latest matching post instead of creating a new one.
+
 ## Observability
 
 - Primary research and writer orchestration runs inside `GeneratedArticleService.generate_and_publish` (`app/services/generated_article_service.py`).

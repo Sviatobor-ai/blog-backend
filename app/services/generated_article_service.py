@@ -7,12 +7,14 @@ import logging
 import time
 from dataclasses import asdict, dataclass
 from typing import Callable
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from ..config import get_primary_generation_settings
+from sqlalchemy import func
 from ..enhancer.deep_search import DeepSearchError, ParallelDeepSearchClient
 from ..services.author_context import build_author_context_from_transcript
 from ..enhancer.providers import get_parallel_deep_search_client
@@ -21,7 +23,7 @@ from ..integrations.supadata import (
     SupadataTranscriptError,
     SupadataTranscriptTooShortError,
 )
-from ..models import Rubric
+from ..models import Post, Rubric
 from ..schemas import ArticleCreateRequest, ArticleDocument, ArticlePublishResponse
 from . import ArticleGenerationError, OpenAIAssistantArticleGenerator
 from .article_publication import persist_article_document, prepare_document_for_publication
@@ -87,6 +89,35 @@ class GeneratedArticleService:
                     raise HTTPException(
                         status_code=503, detail="Transcript generator is not configured"
                     )
+
+                source_key = _build_source_key(str(payload.video_url))
+                existing_post = None
+                if source_key:
+                    existing_post = _find_post_by_source_key(db, source_key)
+                    if existing_post and existing_post.payload:
+                        document = document_from_post(existing_post)
+                        telemetry.slug = existing_post.slug
+                        telemetry.post_id = existing_post.id
+                        logger.info(
+                            "event=video_dedup_hit source_key=%s slug=%s id=%s",
+                            source_key,
+                            existing_post.slug,
+                            existing_post.id,
+                        )
+                        _log_generation_success(telemetry)
+                        return ArticlePublishResponse(
+                            slug=existing_post.slug, id=existing_post.id, post=document
+                        )
+                    if existing_post:
+                        logger.info(
+                            "event=video_dedup_miss source_key=%s slug=%s id=%s reason=no_payload",
+                            source_key,
+                            existing_post.slug,
+                            existing_post.id,
+                        )
+                    else:
+                        logger.info("event=video_dedup_miss source_key=%s", source_key)
+
                 try:
                     supadata = supadata_provider()
                     transcript_result = supadata.get_transcript(
@@ -151,6 +182,7 @@ class GeneratedArticleService:
                         db,
                         raw_text=transcript,
                         source_url=str(payload.video_url),
+                        source_key=source_key,
                         generator=transcript_generator,
                         research_content=research_summary,
                         research_sources=research_sources,
@@ -384,6 +416,56 @@ def _select_client_provider(
     client_provider: Callable[[], ParallelDeepSearchClient] | None,
 ) -> Callable[[], ParallelDeepSearchClient]:
     return client_provider or get_parallel_deep_search_client
+
+
+def _build_source_key(video_url: str | None) -> str | None:
+    if not video_url:
+        return None
+
+    trimmed = video_url.strip()
+    if not trimmed:
+        return None
+
+    parsed = urlparse(trimmed)
+    hostname = parsed.netloc.lower()
+    path = parsed.path
+
+    if "youtube.com" in hostname or "youtu.be" in hostname:
+        video_id = None
+
+        if "youtube.com" in hostname:
+            query_params = parse_qs(parsed.query)
+            video_id = (query_params.get("v") or [None])[0]
+            if not video_id and path.startswith("/shorts/"):
+                parts = [part for part in path.split("/") if part]
+                if len(parts) >= 2:
+                    video_id = parts[1]
+            if not video_id and path.startswith("/embed/"):
+                parts = [part for part in path.split("/") if part]
+                if len(parts) >= 2:
+                    video_id = parts[1]
+        if not video_id and "youtu.be" in hostname:
+            video_id = path.lstrip("/") or None
+
+        if video_id:
+            return f"youtube:{video_id}"
+
+    return trimmed
+
+
+def _find_post_by_source_key(db: Session, source_key: str) -> Post | None:
+    source_key_field = Post.payload["meta"]["source_key"]
+    try:
+        source_key_field = source_key_field.astext
+    except AttributeError:
+        source_key_field = func.json_extract(Post.payload, "$.meta.source_key")
+
+    return (
+        db.query(Post)
+        .filter(source_key_field == source_key)
+        .order_by(Post.updated_at.desc())
+        .first()
+    )
 
 
 def _normalize_research_result(result) -> tuple[str | None, list, str | None]:
