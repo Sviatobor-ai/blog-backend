@@ -17,6 +17,13 @@ from ..services import (
     ensure_unique_slug,
     slugify_pl,
 )
+from .source_links import (
+    build_source_label,
+    dedupe_preserve_order,
+    enforce_single_hyperlink_per_url,
+    extract_urls,
+    normalize_url,
+)
 from .article_utils import compose_body_mdx, extract_sections_from_body
 
 
@@ -131,6 +138,104 @@ def _ensure_tags(tags: List[str] | None) -> List[str]:
     return items[:10]
 
 
+SOURCES_FILLER = (
+    "Poniższe materiały pochodzą z wiarygodnych instytucji i raportów, które wspierają wnioski w artykule."
+)
+SOURCE_SECTION_TITLES = {"źródła", "kontekst i źródła (dla ciekawych)"}
+
+
+def _collect_candidate_citations(article_data: dict, research_sources) -> list[str]:
+    urls = [str(url) for url in (article_data.get("citations") or []) if isinstance(url, str)]
+
+    for source in research_sources or []:
+        candidate = None
+        if isinstance(source, str):
+            candidate = source
+        elif isinstance(source, dict):
+            candidate = source.get("url") or source.get("link")
+        else:
+            candidate = getattr(source, "url", None) or getattr(source, "link", None)
+        if candidate:
+            urls.append(str(candidate))
+
+    return dedupe_preserve_order(urls)
+
+
+def _rewrite_sections_with_single_links(article_data: dict) -> tuple[list[dict], list[str]]:
+    seen_urls: set[str] = set()
+    sanitized_sections: list[dict] = []
+    for section in article_data.get("sections") or []:
+        body = str(section.get("body", ""))
+        rewritten_body, seen_urls = enforce_single_hyperlink_per_url(body, seen_urls)
+        sanitized_sections.append({**section, "body": rewritten_body})
+
+    article_data["sections"] = sanitized_sections
+    body_urls = dedupe_preserve_order(
+        [
+            url
+            for section in sanitized_sections
+            for url in extract_urls(section.get("body", ""))
+        ]
+    )
+    return sanitized_sections, body_urls
+
+
+def _format_sources_content(urls: list[str]) -> str:
+    lines = [f"- [{build_source_label(url)}]({url})" for url in urls]
+    intro = (
+        "Źródła poniżej to materiały wykorzystane przy przygotowaniu artykułu i pozwalają pogłębić temat."
+    )
+    content_parts = [intro, "", "\n".join(lines)]
+    content = "\n".join(content_parts).strip()
+    while len(content) < 400:
+        content = f"{content}\n\n{SOURCES_FILLER}".strip()
+    return content
+
+
+def _upsert_sources_section(sections: list[dict], content: str) -> list[dict]:
+    target_index = next(
+        (
+            index
+            for index, section in enumerate(sections)
+            if str(section.get("title", "")).strip().casefold() in SOURCE_SECTION_TITLES
+        ),
+        None,
+    )
+    if target_index is not None:
+        title = sections[target_index].get("title") or "Źródła"
+        updated = list(sections)
+        updated[target_index] = {"title": title, "body": content}
+        return updated
+
+    return list(sections) + [{"title": "Źródła", "body": content}]
+
+
+def apply_sources_presentation(document_data: dict, *, research_sources=None) -> tuple[dict, list[str]]:
+    """Deduplicate source URLs, enforce single hyperlinks and build a Sources block."""
+
+    article_data = document_data.setdefault("article", {})
+    sanitized_sections, body_urls = _rewrite_sections_with_single_links(article_data)
+    candidate_urls = _collect_candidate_citations(
+        article_data,
+        research_sources if research_sources is not None else document_data.get("research_sources"),
+    )
+
+    inline_normalized = set(normalize_url(url) for url in body_urls)
+    block_urls = [url for url in candidate_urls if normalize_url(url) not in inline_normalized]
+    inline_only = [url for url in body_urls if url not in block_urls]
+
+    final_citations = dedupe_preserve_order(block_urls + inline_only)
+    document_data["article"]["citations"] = final_citations
+
+    if block_urls:
+        sources_content = _format_sources_content(block_urls)
+        document_data["article"]["sections"] = _upsert_sources_section(sanitized_sections, sources_content)
+    else:
+        document_data["article"]["sections"] = sanitized_sections
+
+    return document_data, final_citations
+
+
 def _ensure_context_section_before_faq(document: ArticleDocument) -> ArticleDocument:
     """Place the context block before FAQ without rewriting content."""
 
@@ -202,7 +307,8 @@ def document_from_post(post: Post) -> ArticleDocument:
     if post.payload:
         try:
             sanitized_payload = _apply_sanitized_faq_data(dict(post.payload), slug=post.slug)
-            return _validate_or_construct_document(sanitized_payload, slug=post.slug)
+            sanitized_payload, _ = apply_sources_presentation(sanitized_payload)
+            return ArticleDocument.model_validate(sanitized_payload)
         except (ValueError, ValidationError) as exc:
             logging.warning(
                 "Stored payload for slug %s is invalid, falling back to columns: %s",
@@ -258,6 +364,7 @@ def document_from_post(post: Post) -> ArticleDocument:
         },
     }
     sanitized_fallback = _apply_sanitized_faq_data(fallback_document, slug=post.slug)
+    sanitized_fallback, _ = apply_sources_presentation(sanitized_fallback)
     return _validate_or_construct_document(sanitized_fallback, slug=post.slug)
 
 
@@ -322,6 +429,7 @@ def prepare_document_for_publication(
     document_data.setdefault("seo", {})["slug"] = final_slug
     document_data["seo"]["canonical"] = canonical
     sanitized_data = _apply_sanitized_faq_data(document_data, slug=final_slug)
+    sanitized_data, _ = apply_sources_presentation(sanitized_data)
     return _validate_or_construct_document(sanitized_data, slug=final_slug)
 
 
