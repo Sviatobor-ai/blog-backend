@@ -48,7 +48,7 @@ class OpenAITransportError(OpenAIClientError):
 class OpenAIClient:
     """Utility wrapper offering a minimal Assistants v2 API surface."""
 
-    def __init__(self, *, api_key: str, request_timeout_s: float = 120.0) -> None:
+    def __init__(self, *, api_key: str, request_timeout_s: float = 300.0) -> None:
         if not api_key:
             raise OpenAIClientError("OpenAI API key is not configured")
         if OpenAI is None:  # pragma: no cover - optional dependency guard

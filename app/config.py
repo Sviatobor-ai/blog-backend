@@ -57,7 +57,7 @@ def get_openai_settings() -> OpenAISettings:
 
     timeout_raw = os.getenv("OPENAI_REQUEST_TIMEOUT_S")
     try:
-        timeout = float(timeout_raw) if timeout_raw else 120.0
+        timeout = float(timeout_raw) if timeout_raw else 300.0
     except ValueError as exc:  # pragma: no cover - guardrail for invalid configuration
         raise RuntimeError("OPENAI_REQUEST_TIMEOUT_S must be numeric") from exc
 

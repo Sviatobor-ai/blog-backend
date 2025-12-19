@@ -39,7 +39,7 @@ class EnhancementResponse:
 class EnhancementWriter:
     """Generate fresh sections and FAQ entry via the OpenAI Chat Completions API."""
 
-    def __init__(self, *, api_key: str | None, model: str = "gpt-4.1-mini", timeout_s: float = 120.0) -> None:
+    def __init__(self, *, api_key: str | None, model: str = "gpt-4.1-mini", timeout_s: float = 300.0) -> None:
         if not api_key:
             raise EnhancementWriterError("OPENAI_API_KEY is not configured")
         if OpenAI is None:  # pragma: no cover - optional dependency guard
