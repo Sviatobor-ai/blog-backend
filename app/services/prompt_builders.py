@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Iterable
+import json
 
 from ..config import get_site_base_url
 from .author_context import AuthorContext
@@ -76,9 +77,9 @@ def _compose_generation_brief(
                 "- Gdy coś jest opinią autora, oznacz to wprost (np. 'Autor podkreśla…').",
                 "- Gdy podajesz fakt, wesprzyj go dostępnym źródłem.",
                 "- Preferuj krótkie wstawki z researchu (1–2 zdania) blisko powiązanych akapitów.",
-                "Dodaj opcjonalny blok 'Kontekst i źródła (dla ciekawych)' przed FAQ, tylko gdy masz research_summary lub źródła; ma być zwięzły (definicje w punktach + 3–8 źródeł).",
                 "FAQ ma odpowiadać na pozostałe praktyczne pytania, bez powtarzania tytułów sekcji; jeśli brak sensownych pytań, FAQ może być puste.",
-                "Cytowania: korzystaj z dostarczonych źródeł do twierdzeń faktograficznych, wybieraj linki najlepiej pasujące do tezy (unikaj nadmiaru).",
+                "Cytowania: korzystaj tylko z podanych linków i wplataj je w treść; każdy URL możesz podlinkować maksymalnie raz w całym artykule.",
+                "Nie twórz sekcji ani listy 'Źródła' — linki mają być osadzone kontekstowo w tekście.",
             ]
         )
     lines.extend(_format_author_context(author_context))
@@ -86,20 +87,20 @@ def _compose_generation_brief(
         lines.append("Podsumowanie researchu:")
         lines.append(str(research_content))
     if research_sources:
-        lines.append("Proponowane źródła do cytowania:")
+        citations: list[dict[str, str]] = []
         for idx, source in enumerate(research_sources):
             if idx >= 6:
                 break
             url = getattr(source, "url", None)
+            title = getattr(source, "title", None) or getattr(source, "description", None)
             if isinstance(source, dict):
                 url = source.get("url") or url
-                title = source.get("title") or source.get("description")
-            else:
-                title = getattr(source, "title", None) or getattr(source, "description", None)
-            url_text = str(url) if url else ""
-            title_text = str(title) if title else ""
-            if url_text or title_text:
-                lines.append(f"- {title_text} {url_text}".strip())
+                title = source.get("title") or source.get("description") or title
+            if url:
+                citations.append({"url": str(url), "label": str(title or "")})
+        if citations:
+            lines.append("Dostarczone źródła (używaj tylko ich, każdy URL maksymalnie raz):")
+            lines.append(json.dumps(citations, ensure_ascii=False))
     lines.append(
         "Przygotuj jednowierszowy tytuł SEO i nagłówek (55-60 znaków), bez dwukropków i dopisków, wykorzystując naturalnie przynajmniej jedno kluczowe słowo z tematu lub listy słów kluczowych."
     )
@@ -178,13 +179,14 @@ def build_generation_system_instructions(*, source_url: str | None = None) -> st
         "Always return exactly one JSON object containing: topic, slug, locale, taxonomy, seo, article, aeo.",
         "Craft a captivating lead made of several rich paragraphs that invite the reader in.",
         "Twórz rozbudowane sekcje dopasowane do materiału, zamiast powtarzalnego układu.",
-        "Dodawaj cytowania do twierdzeń faktograficznych korzystając z research_sources, wybieraj 2-3 najlepiej pasujące linki bez przeładowania.",
+        "Dodawaj cytowania do twierdzeń faktograficznych korzystając z research_sources, ale każdy URL może pojawić się w artykule tylko raz jako link kontekstowy.",
         "Populate taxonomy.tags with at least two precise joga.yoga-friendly keywords and ensure taxonomy.categories is never empty.",
         "Produce complete SEO metadata and set seo.canonical to a URL that begins with ",
         f"{canonical_base}.",
         "Keep seo.title and article.headline in Polish under 60 characters, single-line, free of colons, and naturally containing at least one strategic keyword.",
         "Ensure aeo.geo_focus lists meaningful Polish or European localisations. FAQ ma odpowiadać na pozostałe praktyczne pytania (nie powtarzaj tytułów sekcji); jeśli brak nowych pytań, FAQ może być puste.",
-        "Jeśli dodajesz suplement 'Kontekst i źródła (dla ciekawych)', umieść go na końcu sekcji przed FAQ, zwięźle (krótka lista pojęć + 3–8 wybranych źródeł).",
+        "Nie twórz dedykowanej sekcji ani listy 'Źródła' – cytowania mają być wplecione w treść lub pojedynczy końcowy akapit bez nagłówka.",
+        "Korzystaj wyłącznie z dostarczonych linków; nie dodawaj własnych ani hipotetycznych źródeł.",
         "Return JSON only — no comments, markdown, or surrounding prose.",
     ]
     if source_url:

@@ -77,6 +77,9 @@ def generate_article_from_raw(
 
 
 def _warn_low_voice_match(document: ArticleDocument, author_context) -> None:
+    if not isinstance(document, ArticleDocument):
+        logger.debug("skip_voice_match_check invalid_document_type=%s", type(document))
+        return
     if not author_context or not getattr(author_context, "voice_markers", None):
         return
 

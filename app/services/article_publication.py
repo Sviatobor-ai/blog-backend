@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 
 from sqlalchemy.orm import Session
 from pydantic import ValidationError
@@ -18,13 +18,13 @@ from ..services import (
     slugify_pl,
 )
 from .source_links import (
-    build_source_label,
     dedupe_preserve_order,
     enforce_single_hyperlink_per_url,
     extract_urls,
     normalize_url,
 )
 from .article_utils import compose_body_mdx, extract_sections_from_body
+from .internal_links import build_internal_recommendations, format_recommendations_section
 
 
 FALLBACK_FILLER = (
@@ -47,6 +47,8 @@ DEFAULT_FAQ = [
         "answer": "Przygotuj matę, koc, niewielką poduszkę oraz ulubioną wodę ziołową, aby łatwo utrzymać komfort w trakcie ćwiczeń i odpoczynku.",
     },
 ]
+
+SOURCE_SECTION_TITLES = {"źródła", "zrodla"}
 
 
 def sanitize_faq(faq_items: list[dict] | None) -> list[dict]:
@@ -138,12 +140,6 @@ def _ensure_tags(tags: List[str] | None) -> List[str]:
     return items[:10]
 
 
-SOURCES_FILLER = (
-    "Poniższe materiały pochodzą z wiarygodnych instytucji i raportów, które wspierają wnioski w artykule."
-)
-SOURCE_SECTION_TITLES = {"źródła", "kontekst i źródła (dla ciekawych)"}
-
-
 def _collect_candidate_citations(article_data: dict, research_sources) -> list[str]:
     urls = [str(url) for url in (article_data.get("citations") or []) if isinstance(url, str)]
 
@@ -180,38 +176,8 @@ def _rewrite_sections_with_single_links(article_data: dict) -> tuple[list[dict],
     return sanitized_sections, body_urls
 
 
-def _format_sources_content(urls: list[str]) -> str:
-    lines = [f"- [{build_source_label(url)}]({url})" for url in urls]
-    intro = (
-        "Źródła poniżej to materiały wykorzystane przy przygotowaniu artykułu i pozwalają pogłębić temat."
-    )
-    content_parts = [intro, "", "\n".join(lines)]
-    content = "\n".join(content_parts).strip()
-    while len(content) < 400:
-        content = f"{content}\n\n{SOURCES_FILLER}".strip()
-    return content
-
-
-def _upsert_sources_section(sections: list[dict], content: str) -> list[dict]:
-    target_index = next(
-        (
-            index
-            for index, section in enumerate(sections)
-            if str(section.get("title", "")).strip().casefold() in SOURCE_SECTION_TITLES
-        ),
-        None,
-    )
-    if target_index is not None:
-        title = sections[target_index].get("title") or "Źródła"
-        updated = list(sections)
-        updated[target_index] = {"title": title, "body": content}
-        return updated
-
-    return list(sections) + [{"title": "Źródła", "body": content}]
-
-
 def apply_sources_presentation(document_data: dict, *, research_sources=None) -> tuple[dict, list[str]]:
-    """Deduplicate source URLs, enforce single hyperlinks and build a Sources block."""
+    """Deduplicate source URLs, enforce single hyperlinks and clear the citations list."""
 
     article_data = document_data.setdefault("article", {})
     sanitized_sections, body_urls = _rewrite_sections_with_single_links(article_data)
@@ -221,17 +187,13 @@ def apply_sources_presentation(document_data: dict, *, research_sources=None) ->
     )
 
     inline_normalized = set(normalize_url(url) for url in body_urls)
-    block_urls = [url for url in candidate_urls if normalize_url(url) not in inline_normalized]
-    inline_only = [url for url in body_urls if url not in block_urls]
-
-    final_citations = dedupe_preserve_order(block_urls + inline_only)
-    document_data["article"]["citations"] = final_citations
-
-    if block_urls:
-        sources_content = _format_sources_content(block_urls)
-        document_data["article"]["sections"] = _upsert_sources_section(sanitized_sections, sources_content)
-    else:
-        document_data["article"]["sections"] = sanitized_sections
+    external_only = [url for url in candidate_urls if normalize_url(url) not in inline_normalized]
+    final_citations = dedupe_preserve_order(body_urls + external_only)
+    document_data.setdefault("debug", {})["citations"] = [
+        str(url) for url in final_citations if isinstance(url, str)
+    ]
+    document_data["article"]["citations"] = []
+    document_data["article"]["sections"] = sanitized_sections
 
     return document_data, final_citations
 
@@ -258,6 +220,45 @@ def _ensure_context_section_before_faq(document: ArticleDocument) -> ArticleDocu
     payload = document.model_dump(mode="json")
     payload["article"]["sections"] = [section.model_dump() for section in reordered]
     return ArticleDocument.model_validate(payload)
+
+
+def _dedupe_sources_sections(sections: list[dict]) -> Tuple[list[dict], bool]:
+    kept: list[dict] = []
+    removed = False
+    for section in sections:
+        title = str(section.get("title", "")).strip()
+        normalized = title.casefold()
+        if normalized in SOURCE_SECTION_TITLES:
+            if any(str(item.get("title", "")).strip().casefold() in SOURCE_SECTION_TITLES for item in kept):
+                removed = True
+                continue
+        kept.append(section)
+    return kept, removed
+
+
+def _upsert_recommendations_section(sections: list[dict], content: str) -> tuple[list[dict], str]:
+    cleaned_sections, removed_duplicate = _dedupe_sources_sections(sections)
+    target_index = next(
+        (
+            index
+            for index, section in enumerate(cleaned_sections)
+            if str(section.get("title", "")).strip().casefold() in SOURCE_SECTION_TITLES
+        ),
+        None,
+    )
+
+    action = "appended"
+    if target_index is not None:
+        title = cleaned_sections[target_index].get("title") or "Źródła"
+        updated = list(cleaned_sections)
+        updated[target_index] = {"title": title, "body": content}
+        action = "replaced"
+        return updated, action
+
+    updated = list(cleaned_sections) + [{"title": "Źródła", "body": content}]
+    if removed_duplicate:
+        action = "deduped-appended"
+    return updated, action
 
 
 def _ensure_faq(faq_items: List[dict] | None) -> List[dict]:
@@ -300,7 +301,10 @@ def _validate_or_construct_document(document_data: dict, *, slug: str | None = N
         logging.warning(
             "faq-sanitization validation fallback slug=%s error=%s", slug or document_data.get("slug"), exc
         )
-        return ArticleDocument.model_construct(**document_data)
+        constructed = ArticleDocument.model_construct(**document_data)
+        if not isinstance(constructed, ArticleDocument):
+            raise ArticleGenerationError("Failed to recover ArticleDocument after validation") from exc
+        return constructed
 
 
 def document_from_post(post: Post) -> ArticleDocument:
@@ -429,7 +433,26 @@ def prepare_document_for_publication(
     document_data.setdefault("seo", {})["slug"] = final_slug
     document_data["seo"]["canonical"] = canonical
     sanitized_data = _apply_sanitized_faq_data(document_data, slug=final_slug)
-    sanitized_data, _ = apply_sources_presentation(sanitized_data)
+    sanitized_data, cleared_citations = apply_sources_presentation(sanitized_data)
+
+    recommendations = build_internal_recommendations(
+        db,
+        current_slug=final_slug,
+        current_section=rubric_name,
+    )
+    recommendation_content = format_recommendations_section(recommendations)
+    sections = sanitized_data.get("article", {}).get("sections") or []
+    updated_sections, action = _upsert_recommendations_section(sections, recommendation_content)
+    sanitized_data.setdefault("article", {})["sections"] = updated_sections
+
+    logging.info(
+        "event=prepare_document recommendations=%s action=%s citations_cleared=%s slug=%s",
+        len(recommendations),
+        action,
+        len(cleared_citations),
+        final_slug,
+    )
+
     return _validate_or_construct_document(sanitized_data, slug=final_slug)
 
 

@@ -30,7 +30,7 @@ def test_sanitize_faq_removes_empty_and_dedupes():
     ]
 
 
-def test_apply_sources_presentation_builds_sources_block_and_dedupes_links():
+def test_apply_sources_presentation_dedupes_links_and_clears_citations():
     document_data = {
         "article": {
             "sections": [
@@ -58,23 +58,17 @@ def test_apply_sources_presentation_builds_sources_block_and_dedupes_links():
     updated, final_citations = apply_sources_presentation(deepcopy(document_data))
 
     sections = updated["article"]["sections"]
-    sources_section = next((section for section in sections if section["title"] == "Źródła"), None)
-    assert sources_section is not None
-    assert "- [" in sources_section["body"]
-    assert "https://third.example.com/extra" in sources_section["body"]
-
     body_urls = []
     for section in sections:
-        if section["title"] == "Źródła":
-            continue
         body_urls.extend(extract_urls(section["body"]))
 
     normalized_body_urls = [normalize_url(url) for url in body_urls]
     assert normalized_body_urls.count("https://example.com/path") == 1
     assert normalized_body_urls.count("https://docs.example.com/guide") == 1
 
+    assert updated["article"]["citations"] == []
     assert final_citations == [
-        "https://third.example.com/extra",
         "https://example.com/path",
         "https://docs.example.com/guide",
+        "https://third.example.com/extra",
     ]
