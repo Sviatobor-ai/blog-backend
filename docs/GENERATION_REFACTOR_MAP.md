@@ -119,6 +119,13 @@ This document inventories the current modules, entry points, and supporting flow
 - Strażnik `_ensure_context_section_before_faq` w `app/services/article_publication.py` przenosi sekcję „Kontekst i źródła (dla ciekawych)” na koniec sekcji, jeśli FAQ istnieje.
 - Enhancement writer (`app/enhancer/writer.py`) otrzymał tę samą wskazówkę: utrzymuj narrację autora, research dodawaj jako krótkie wstawki lub kompaktowy blok kontekstu.
 
+### Źródła i rekomendacje (PR F)
+
+- Generatory topic/transkrypt otrzymują źródła jako listę `{url,label}` i instruują model, by linkował je kontekstowo maksymalnie raz; zakazana jest sekcja „Źródła” z linkami zewnętrznymi.
+- `apply_sources_presentation` czyści `article.citations` i deduplikuje linki w treści, odkładając surowe URL-e do `payload.debug.citations` bez renderowania.
+- Sekcja „Źródła” w treści jest nadpisywana rekomendacjami wewnętrznymi: `build_internal_recommendations` dobiera 3–4 posty z tej samej/dowolnej rubryki, a `format_recommendations_section` przygotowuje blok „Przeczytaj również”.
+- `prepare_document_for_publication` wstrzykuje rekomendacje i loguje liczbę wstawek, jednocześnie pilnując pojedynczej sekcji „Źródła”.
+
 ## Stability hardening (minimal)
 
 - FAQ sanitization in `app/services/article_publication.py` removes empty/duplicate entries (whitespace-trimmed, case-insensitive questions) before persistence and when returning posts.
