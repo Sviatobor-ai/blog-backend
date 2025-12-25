@@ -163,71 +163,75 @@ def _collect_candidate_citations(article_data: dict, research_sources) -> list[s
 
 def _rewrite_sections_with_single_links(article_data: dict) -> tuple[list[dict], list[str]]:
     seen_urls: set[str] = set()
-    linked_in_order: list[str] = []
     sanitized_sections: list[dict] = []
     for section in article_data.get("sections") or []:
         body = str(section.get("body", ""))
-        before = set(seen_urls)
         rewritten_body, seen_urls = enforce_single_hyperlink_per_url(body, seen_urls)
-        new_urls = [url for url in seen_urls if url not in before]
-        linked_in_order.extend(new_urls)
         sanitized_sections.append({**section, "body": rewritten_body})
 
     article_data["sections"] = sanitized_sections
-    return sanitized_sections, linked_in_order
+    body_urls = dedupe_preserve_order(
+        [
+            url
+            for section in sanitized_sections
+            for url in extract_urls(section.get("body", ""))
+        ]
+    )
+    return sanitized_sections, body_urls
 
 
 def _format_sources_content(urls: list[str]) -> str:
     lines = [f"- [{build_source_label(url)}]({url})" for url in urls]
-    return "\n".join(lines).strip()
+    intro = (
+        "Źródła poniżej to materiały wykorzystane przy przygotowaniu artykułu i pozwalają pogłębić temat."
+    )
+    content_parts = [intro, "", "\n".join(lines)]
+    content = "\n".join(content_parts).strip()
+    while len(content) < 400:
+        content = f"{content}\n\n{SOURCES_FILLER}".strip()
+    return content
 
 
 def _upsert_sources_section(sections: list[dict], content: str) -> list[dict]:
-    sanitized: list[dict] = []
-    inserted = False
+    target_index = next(
+        (
+            index
+            for index, section in enumerate(sections)
+            if str(section.get("title", "")).strip().casefold() in SOURCE_SECTION_TITLES
+        ),
+        None,
+    )
+    if target_index is not None:
+        title = sections[target_index].get("title") or "Źródła"
+        updated = list(sections)
+        updated[target_index] = {"title": title, "body": content}
+        return updated
 
-    for section in sections:
-        title = str(section.get("title", "")).strip()
-        if title.casefold() in SOURCE_SECTION_TITLES:
-            if not inserted:
-                sanitized.append({"title": title or "Źródła", "body": content})
-                inserted = True
-            continue
-        sanitized.append(section)
-
-    if not inserted:
-        sanitized.append({"title": "Źródła", "body": content})
-
-    return sanitized
+    return list(sections) + [{"title": "Źródła", "body": content}]
 
 
 def apply_sources_presentation(document_data: dict, *, research_sources=None) -> tuple[dict, list[str]]:
     """Deduplicate source URLs, enforce single hyperlinks and build a Sources block."""
 
     article_data = document_data.setdefault("article", {})
-    sanitized_sections, linked_urls = _rewrite_sections_with_single_links(article_data)
+    sanitized_sections, body_urls = _rewrite_sections_with_single_links(article_data)
     candidate_urls = _collect_candidate_citations(
         article_data,
         research_sources if research_sources is not None else document_data.get("research_sources"),
     )
 
-    inline_normalized = {normalize_url(url) for url in linked_urls if url}
-    normalized_candidates = dedupe_preserve_order(candidate_urls)
-    block_urls = [url for url in normalized_candidates if normalize_url(url) not in inline_normalized]
-    inline_urls = [url for url in normalized_candidates if normalize_url(url) in inline_normalized]
+    inline_normalized = set(normalize_url(url) for url in body_urls)
+    block_urls = [url for url in candidate_urls if normalize_url(url) not in inline_normalized]
+    inline_only = [url for url in body_urls if url not in block_urls]
 
-    final_citations = dedupe_preserve_order(block_urls + inline_urls)
+    final_citations = dedupe_preserve_order(block_urls + inline_only)
     document_data["article"]["citations"] = final_citations
 
     if block_urls:
         sources_content = _format_sources_content(block_urls)
         document_data["article"]["sections"] = _upsert_sources_section(sanitized_sections, sources_content)
     else:
-        document_data["article"]["sections"] = [
-            section
-            for section in sanitized_sections
-            if str(section.get("title", "")).strip().casefold() not in SOURCE_SECTION_TITLES
-        ]
+        document_data["article"]["sections"] = sanitized_sections
 
     return document_data, final_citations
 

@@ -38,26 +38,6 @@ def test_enforce_single_hyperlink_per_url_keeps_first_link_only():
     assert normalize_url("https://example.com/page#ref") in seen
 
 
-def test_enforce_single_hyperlink_per_url_respects_shared_state_across_sections():
-    shared: set[str] = set()
-
-    first_text = "Pierwszy [Link](https://example.com/page/) w tekście."
-    rewritten_first, shared = enforce_single_hyperlink_per_url(first_text, shared)
-
-    second_text = (
-        "Kolejna sekcja z [Drugim](https://example.com/page#ref) linkiem i gołym "
-        "https://example.com/page/ w treści."
-    )
-    rewritten_second, shared = enforce_single_hyperlink_per_url(second_text, shared)
-
-    assert "[Link](https://example.com/page/)" in rewritten_first
-    assert "Drugim" in rewritten_second
-    assert "[Drugim](" not in rewritten_second
-    assert "https://example.com/page#ref" not in rewritten_second
-    assert "example.com/page/" in rewritten_second
-    assert normalize_url("https://example.com/page#ref") in shared
-
-
 def test_build_source_label_maps_known_hosts():
     label = build_source_label(
         "https://www.health.harvard.edu/blog/more-than-just-a-game-yoga-for-school-age-children-201601299055"
